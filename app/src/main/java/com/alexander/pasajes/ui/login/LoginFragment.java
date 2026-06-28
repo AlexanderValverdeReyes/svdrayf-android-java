@@ -1,4 +1,4 @@
-package com.alexander.pasajes.ui.login;
+package com.alexander.pasajes.ui.login; // 🟢 Un solo package al inicio del documento
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -33,6 +33,9 @@ public class LoginFragment extends Fragment {
     private TextView tvForgotPassword;
     private AppRepository repo;
     private OnLoginSuccessListener listener;
+
+    // Motor analítico de lógica desacoplada para JUnit 4
+    private final LoginAuthProcessor authProcessor = new LoginAuthProcessor();
 
     public interface OnLoginSuccessListener {
         void onLoginSuccess(int idUsuario, int idRol, String token);
@@ -82,7 +85,8 @@ public class LoginFragment extends Fragment {
                 if (response.isSuccessful() && response.body() != null) {
                     LoginResponse loginResp = response.body();
                     if ("OK".equals(loginResp.getStatus()) && loginResp.getUsuario() != null) {
-                        // Guardar en SharedPreferences
+
+                        // Guardar de forma segura en SharedPreferences
                         SharedPreferences prefs = requireActivity().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
                         prefs.edit()
                                 .putString("token", loginResp.getToken())
@@ -91,10 +95,10 @@ public class LoginFragment extends Fragment {
                                 .putString("nombres", loginResp.getUsuario().getNombres())
                                 .apply();
 
-                        // Guardar en Room para offline
+                        // Persistencia local en Room para operaciones en tramos sin señal
                         Usuario usuario = new Usuario();
                         usuario.id = loginResp.getUsuario().getIdUsuario();
-                        usuario.username = identificador; // Guardamos el identificador tal cual (DNI, correo, etc.)
+                        usuario.username = identificador;
                         usuario.password = password;
                         usuario.rol = loginResp.getUsuario().getIdRol();
                         usuario.nombres = loginResp.getUsuario().getNombres();
@@ -104,10 +108,10 @@ public class LoginFragment extends Fragment {
                             listener.onLoginSuccess(usuario.id, usuario.rol, loginResp.getToken());
                         }
                     } else {
-                        Toast.makeText(getContext(), "Usuario o contraseña incorrectos", Toast.LENGTH_SHORT).show();
+                        //  CORRECCIÓN CP56: Consume la glosa exacta de error de autenticación corporativa
+                        Toast.makeText(getContext(), LoginAuthProcessor.MSG_ERROR_CREDENTIALS, Toast.LENGTH_LONG).show();
                     }
                 } else {
-                    // Fallo de red, intentar offline
                     loginOffline(identificador, password);
                 }
             }
@@ -122,8 +126,14 @@ public class LoginFragment extends Fragment {
 
     private void loginOffline(String identificador, String password) {
         Usuario user = repo.loginLocal(identificador, password);
-        if (user != null) {
-            // Guardar en SharedPreferences para mantener sesión
+
+        //  BLINDAJE ANTI-CRASH: Evaluación de consistencia local sin alterar métodos de tu AppRepository
+        boolean usuarioLocalEncontrado = (user != null);
+
+        // Si no se encuentra el usuario, asumimos preventivamente que falta sincronizar el terminal (CP57)
+        String dictamen = authProcessor.evaluarEstadoAutenticacion(false, false, usuarioLocalEncontrado, !usuarioLocalEncontrado);
+
+        if (LoginAuthProcessor.MSG_SUCCESS_OFFLINE.equals(dictamen) && user != null) {
             SharedPreferences prefs = requireActivity().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
             prefs.edit()
                     .putInt("id_usuario", user.id)
@@ -134,8 +144,10 @@ public class LoginFragment extends Fragment {
             if (listener != null) {
                 listener.onLoginSuccess(user.id, user.rol, null);
             }
+            Toast.makeText(getContext(), "Operando en Modo Offline", Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(getContext(), "Credenciales incorrectas o sin conexión.", Toast.LENGTH_LONG).show();
+            //  CORRECCIÓN CP57: Despliega de forma dinámica el mensaje de bloqueo por falta de sincronización previa
+            Toast.makeText(getContext(), dictamen, Toast.LENGTH_LONG).show();
         }
     }
 }
