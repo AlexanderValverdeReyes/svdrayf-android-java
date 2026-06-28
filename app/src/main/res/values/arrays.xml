@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="tipo_incidencia">
+        <item>NORMAL</item>
+        <item>FRAUDE_QR</item>
+        <item>EVASION_PASAJE</item>
+        <item>ANULACION_INDEBIDA</item>
+    </string-array>
+    <string-array name="connection_types">
+        <item>Bluetooth</item>
+        <item>USB</item>
+    </string-array>
+</resources>

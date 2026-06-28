@@ -1,0 +1,31 @@
+<resources>
+    <string name="app_name">SVDRAYF</string>
+    <string name="login_title">Iniciar Sesión</string>
+    <string name="login_subtitle">Ingrese sus credenciales corporativas</string>
+    <string name="hint_identificador">DNI o Correo</string>
+    <string name="hint_password">Contraseña</string>
+    <string name="btn_login">Ingresar</string>
+    <string name="forgot_password">¿Olvidó su contraseña?</string>
+    <string name="error_empty_fields">Complete todos los campos</string>
+    <string name="error_login_failed">Credenciales incorrectas</string>
+    <string name="error_network">Error de conexión</string>
+    <string name="aperturar_turno">Aperturar Turno</string>
+    <string name="hint_bus">Bus (Placa)</string>
+    <string name="hint_ruta">Ruta</string>
+    <string name="btn_abrir_turno">Abrir Turno</string>
+    <string name="tipo_pasajero">Tipo de pasajero:</string>
+    <string name="origen">Origen:</string>
+    <string name="destino">Destino:</string>
+    <string name="precio_default">Precio: S/ 0.00</string>
+    <string name="metodo_pago">Método de pago:</string>
+    <string name="efectivo">Efectivo</string>
+    <string name="qr">QR</string>
+    <string name="qr_imagen">Código QR de pago</string>
+    <string name="imprimir_vender">Imprimir y vender</string>
+    <string name="seleccionar_tramo">Seleccionar tramo:</string>
+    <string name="impresora_desconocida">Impresora: desconocida</string>
+    <string name="impresora_conectada">Impresora: conectada</string>
+    <string name="impresora_configurada_no_conectada">Impresora: configurada (no conectada)</string>
+    <string name="impresora_no_configurada">Impresora: no configurada</string>
+    <string name="conectar">Conectar</string>
+</resources>

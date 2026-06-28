@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:background="#FFFFFF">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Aperturar Turno de Ruta"
+        android:textSize="24sp"
+        android:textColor="#1A237E"
+        android:textStyle="bold"
+        android:layout_marginBottom="28dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Unidad Vehicular Libre (Placa):"
+        android:textColor="#212121"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="6dp"/>
+
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:background="@android:drawable/btn_dropdown"
+        android:layout_marginBottom="20dp">
+        <Spinner
+            android:id="@+id/spinnerBus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp" />
+    </FrameLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Modalidad de Servicio Operativo:"
+        android:textColor="#212121"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="6dp"/>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:background="@android:drawable/btn_dropdown"
+        android:layout_marginBottom="20dp">
+        <Spinner
+            android:id="@+id/spinnerRuta"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:minHeight="48dp" />
+    </FrameLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Régimen Tarifario Vigente:"
+        android:textColor="#212121"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="6dp"/>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:background="@android:drawable/btn_dropdown"
+        android:layout_marginBottom="32dp">
+        <Spinner
+            android:id="@+id/spinnerTipoDia"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:minHeight="48dp" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal">
+        <Button
+            android:id="@+id/btnAbrirTurno"
+            android:layout_width="wrap_content"
+            android:layout_height="54dp"
+            android:minWidth="260dp"
+            android:text="INICIAR JORNADA EN RUTA"
+            android:backgroundTint="#D32F2F"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progressBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="20dp"
+        android:visibility="gone" />
+
+
+</LinearLayout>

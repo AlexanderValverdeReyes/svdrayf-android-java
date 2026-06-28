@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#1A237E</color>       <!-- Azul oscuro -->
+    <color name="primary_dark">#0D1642</color>
+    <color name="accent">#FF6F00</color>        <!-- Naranja -->
+    <color name="white">#FFFFFF</color>
+    <color name="background">#F5F5F5</color>
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+    <color name="estado_conectado">#008000</color>   <!-- verde -->
+    <color name="estado_advertencia">#FFA500</color> <!-- naranja -->
+    <color name="estado_error">#FF0000</color>       <!-- rojo -->
+</resources>
