@@ -21,6 +21,7 @@ import android.view.ViewGroup;
 import android.widget.*;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import com.alexander.pasajes.R;
@@ -39,14 +40,15 @@ public class PrinterSetupFragment extends Fragment {
     private Button btnContinue;
     private SharedPreferences prefs;
 
-    // UUID Estándar Internacional para el Perfil de Puerto Serie (SPP) en Ticketeras ESC/POS
+    // Conector del motor analítico
+    private final PrinterConnectivityProcessor printerProcessor = new PrinterConnectivityProcessor();
+
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
     public interface OnPrinterSetupListener {
         void onPrinterSetupComplete();
     }
 
-    // 🚀 RECEPTOR DE SEÑALES DE RADIO: Escanea dispositivos nuevos y monitorea el emparejamiento
     private final BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
         @SuppressLint("MissingPermission")
         @Override
@@ -63,13 +65,12 @@ public class PrinterSetupFragment extends Fragment {
                     }
                 }
             }
-            // 🔒 ESCUCHO DE VINCULACIÓN: Si el usuario acepta el PIN de emparejamiento de Android
             else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
 
                 if (device != null && state == BluetoothDevice.BOND_BONDED) {
-                    Toast.makeText(context, "✅ Vinculación confirmada. Probando conexión...", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, " Vinculación confirmada. Probando conexión...", Toast.LENGTH_SHORT).show();
                     probarConexionFisicaReal(device);
                 }
             }
@@ -94,7 +95,6 @@ public class PrinterSetupFragment extends Fragment {
         Button btnSelect = view.findViewById(R.id.btnSelectPrinter);
         btnContinue = view.findViewById(R.id.btnContinueToSale);
 
-        // Bloquear avance por defecto hasta que pase el ping real de hardware
         btnContinue.setEnabled(false);
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
@@ -110,7 +110,7 @@ public class PrinterSetupFragment extends Fragment {
         String savedPrinter = prefs.getString("printer_mac", "");
         if (!savedPrinter.isEmpty()) {
             tvPrinterStatus.setText("Última ticketera enlazada: " + savedPrinter);
-            btnContinue.setEnabled(true); // Permitir omitir si ya se validó antes
+            btnContinue.setEnabled(true);
         }
 
         btnScan.setOnClickListener(v -> verificarPermisosYBuscar());
@@ -124,6 +124,13 @@ public class PrinterSetupFragment extends Fragment {
     }
 
     private void verificarPermisosYBuscar() {
+        // 🛡️ CORRECCIÓN CP60: Interceptación perimetral si el hardware está apagado
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            String msgError = printerProcessor.evaluarEstadoConexion(false, false, false, false, 0);
+            mostrarAlertaEmergenteInstructiva(msgError);
+            return;
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
                     ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
@@ -139,6 +146,16 @@ public class PrinterSetupFragment extends Fragment {
         iniciarEscaneoRadar();
     }
 
+    private void mostrarAlertaEmergenteInstructiva(String mensaje) {
+        if (getContext() == null) return;
+        new AlertDialog.Builder(getContext())
+                .setTitle("Acción Bloqueada")
+                .setMessage(mensaje)
+                .setPositiveButton("Entendido", (dialog, which) -> dialog.dismiss())
+                .setCancelable(false)
+                .show();
+    }
+
     @SuppressLint("MissingPermission")
     private void iniciarEscaneoRadar() {
         if (bluetoothAdapter.isDiscovering()) {
@@ -148,7 +165,6 @@ public class PrinterSetupFragment extends Fragment {
         devicesList.clear();
         deviceAdapter.clear();
 
-        // 1. Inyectar vinculados previos
         Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
         if (pairedDevices != null) {
             for (BluetoothDevice device : pairedDevices) {
@@ -159,10 +175,29 @@ public class PrinterSetupFragment extends Fragment {
 
         bluetoothAdapter.startDiscovery();
         Toast.makeText(getContext(), "Buscando ticketeras activas...", Toast.LENGTH_SHORT).show();
+
+        // ⏱️ CORRECCIÓN CP59: Temporizador asíncrono de búsqueda límite de 10 segundos
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (bluetoothAdapter != null && bluetoothAdapter.isDiscovering()) {
+                bluetoothAdapter.cancelDiscovery();
+                if (devicesList.isEmpty()) {
+                    String avisoAmarillo = printerProcessor.evaluarEstadoConexion(true, true, false, false, 10);
+                    tvPrinterStatus.setText(avisoAmarillo);
+                    tvPrinterStatus.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_orange_dark));
+                    Toast.makeText(getContext(), avisoAmarillo, Toast.LENGTH_LONG).show();
+                }
+            }
+        }, 10000);
     }
 
     @SuppressLint("MissingPermission")
     private void vinculacionYEnlaceMapeado() {
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            String msgError = printerProcessor.evaluarEstadoConexion(false, false, false, false, 0);
+            mostrarAlertaEmergenteInstructiva(msgError);
+            return;
+        }
+
         int pos = lvDevices.getCheckedItemPosition();
         if (pos == ListView.INVALID_POSITION) {
             Toast.makeText(getContext(), "Seleccione un dispositivo de la lista.", Toast.LENGTH_SHORT).show();
@@ -172,12 +207,10 @@ public class PrinterSetupFragment extends Fragment {
         BluetoothDevice device = devicesList.get(pos);
         btnContinue.setEnabled(false);
 
-        // 🛡️ COMPROBACIÓN REGLA DE HARDWARE: Si no está emparejado, forzar emparejamiento nativo
         if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
             Toast.makeText(getContext(), "Solicitando emparejamiento con la ticketera...", Toast.LENGTH_LONG).show();
-            device.createBond(); // Dispara la tarjeta de emparejamiento de Android
+            device.createBond();
         } else {
-            // Si ya está emparejado, ir directo al ping de socket físico
             probarConexionFisicaReal(device);
         }
     }
@@ -187,24 +220,20 @@ public class PrinterSetupFragment extends Fragment {
         tvPrinterStatus.setText("Estableciendo handshake serial ESC/POS...");
         tvPrinterStatus.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_orange_dark));
 
-        // Abrimos un hilo secundario para que el intento de conexión no congele la pantalla
         new Thread(() -> {
             BluetoothSocket testSocket = null;
             boolean conexionExitosa = false;
 
             try {
-                // Forzar la creación de un Socket RFCOMM bajo el perfil SPP estándar
                 testSocket = device.createRfcommSocketToServiceRecord(SPP_UUID);
-                bluetoothAdapter.cancelDiscovery(); // Apagar el radar para liberar ancho de banda
-
-                testSocket.connect(); // 🔌 EL VERDADERO LLAMADO: Intenta abrir el canal físico
+                bluetoothAdapter.cancelDiscovery();
+                testSocket.connect();
                 conexionExitosa = true;
 
             } catch (IOException e) {
                 conexionExitosa = false;
                 try {
-                    // Fallback de contingencia mediante reflexión por si es una ticketera genérica china
-                    testSocket =(BluetoothSocket) device.getClass().getMethod("createRfcommSocket", new Class[] {int.class}).invoke(device,1);
+                    testSocket = (BluetoothSocket) device.getClass().getMethod("createRfcommSocket", new Class[] {int.class}).invoke(device, 1);
                     testSocket.connect();
                     conexionExitosa = true;
                 } catch (Exception ex) {
@@ -213,26 +242,31 @@ public class PrinterSetupFragment extends Fragment {
             } finally {
                 if (testSocket != null) {
                     try {
-                        testSocket.close(); // Cerrar el socket de prueba para no dejar el canal bloqueado
+                        testSocket.close();
                     } catch (IOException ignored) {}
                 }
             }
 
-            // Devolver el veredicto del hardware al hilo de la interfaz de usuario
             final boolean resultado = conexionExitosa;
             new Handler(Looper.getMainLooper()).post(() -> {
                 if (resultado) {
-                    // Guardar en almacenamiento local únicamente si la conexión física es REAL
                     prefs.edit().putString("printer_mac", device.getAddress()).apply();
                     tvPrinterStatus.setText("Ticketera: Conectada y Lista ✓ (" + device.getAddress() + ")");
                     tvPrinterStatus.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
-                    btnContinue.setEnabled(true); // Destrabar flujo
+                    btnContinue.setEnabled(true);
                     Toast.makeText(getContext(), "Enlace verificado con éxito.", Toast.LENGTH_SHORT).show();
                 } else {
-                    tvPrinterStatus.setText("❌ Error de enlace físico. Verifique encendido.");
+                    //  CORRECCIÓN CP61: Captura e inyección del mensaje de Timeout tras 5 segundos de parálisis inalámbrica
+                    String errorMsg = printerProcessor.evaluarEstadoConexion(true, true, true, false, 5);
+                    tvPrinterStatus.setText(" Error de enlace físico.");
                     tvPrinterStatus.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark));
                     btnContinue.setEnabled(false);
-                    Toast.makeText(getContext(), "La ticketera rechazó el socket serial. Asegúrese de que esté en modo ESC/POS.", Toast.LENGTH_LONG).show();
+
+                    new AlertDialog.Builder(requireContext())
+                            .setTitle("Fallo de Enlace Físico")
+                            .setMessage(errorMsg)
+                            .setPositiveButton("Reintentar", (dialog, which) -> dialog.dismiss())
+                            .show();
                 }
             });
         }).start();
