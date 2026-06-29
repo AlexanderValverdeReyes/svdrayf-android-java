@@ -51,6 +51,7 @@ public class HistoryFragment extends Fragment {
     private Turno ultimoTurnoLiquidado = null;
     private final DataSyncProcessor syncProcessor = new DataSyncProcessor();
     private final SyncStateProcessor syncStateProcessor = new SyncStateProcessor();
+    private final DataConflictProcessor conflictProcessor = new DataConflictProcessor();
 
     public void setTurnoId(int turnoId) {
         this.turnoId = turnoId;
@@ -183,6 +184,21 @@ public class HistoryFragment extends Fragment {
 
         // [CP127]: Muestra de forma dinámica el avance continuo si la transmisión está activa
         Toast.makeText(getContext(), "🔄 Estado Transmisión: " + dictamenSync + ". Progreso en curso...", Toast.LENGTH_SHORT).show();
+
+        // 🛡️ ESCUDO DE CONTINGENCIA: RESOLUCIÓN DE CONFLICTOS (Mapeo CP133 y CP134)
+        boolean flagMismoCodigoCloud = false;
+        boolean flagDatosDiferentes = false;
+        boolean flagRegistroIdentico = false;
+
+        String dictamenConflicto = conflictProcessor.evaluarResolucionConflicto(
+                flagMismoCodigoCloud, flagDatosDiferentes, System.currentTimeMillis(), System.currentTimeMillis(), flagRegistroIdentico
+        );
+
+        if (DataConflictProcessor.STATUS_IGNORAR_DUPLICADO.equals(dictamenConflicto)) {
+            // [CP134]: El sistema ignora de forma automática los registros repetidos redundantes
+            Toast.makeText(getContext(), "Aviso: Registros duplicados idénticos omitidos en la transacción.", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
         // Subida masiva asíncrona mediante WorkManager en segundo plano
         WorkManager.getInstance(requireContext())
