@@ -40,6 +40,9 @@ public class CobradorMainFragment extends Fragment {
     private ArrayAdapter<Ruta> rutaAdapter;
     private int idUsuario;
 
+    // Conector del procesador lógico para JUnit 4
+    private final BusSelectionProcessor busProcessor = new BusSelectionProcessor();
+
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
@@ -60,6 +63,7 @@ public class CobradorMainFragment extends Fragment {
         btnAbrirTurno = view.findViewById(R.id.btnAbrirTurno);
         progressBar = view.findViewById(R.id.progressBar);
 
+        // [CP66]: Al iniciar, el sistema descarga de forma asíncrona la lista de la nube
         descargarMaestros();
     }
 
@@ -69,11 +73,12 @@ public class CobradorMainFragment extends Fragment {
         api.getMaestros().enqueue(new Callback<MaestrosResponse>() {
             @Override
             public void onResponse(@NonNull Call<MaestrosResponse> call, @NonNull Response<MaestrosResponse> response) {
-                // 🛡️ ESCUDO DE ASINCRONÍA CONSOLE LOG: Evita que la app muera si el operador cambia de pantalla
                 if (!isAdded() || getContext() == null) return;
 
                 if (response.isSuccessful() && response.body() != null) {
                     repo.guardarMaestros(response.body());
+                    // Notificación interna conforme a la ficha
+                    Toast.makeText(getContext(), "Catálogo de flota sincronizado.", Toast.LENGTH_SHORT).show();
                 }
                 cargarSpinners();
             }
@@ -143,14 +148,15 @@ public class CobradorMainFragment extends Fragment {
                 btnAbrirTurno.setEnabled(true);
 
                 if (response.isSuccessful() && response.body() != null && response.body().turno != null) {
-                    // 🚀 ENLACE EXITOSO: Guardamos el ID serial real de PostgreSQL en Room local
                     turnoLocal.serverTurnoId = response.body().turno.idTurno;
                     turnoLocal.sincronizado = true;
 
                     long idGenerado = repo.abrirTurno(turnoLocal);
                     completarTransicionVenta(idGenerado, tipoRuta, rutaId, busId);
-                } else if (response.code() == 409) {
-                    Toast.makeText(getContext(), "⚠️ Conflicto: Esta unidad o su cuenta ya registran jornada activa.", Toast.LENGTH_LONG).show();
+                }
+                //  CORRECCIÓN CP67: Captura el código 409 de conflicto e inyecta la glosa exacta de rechazo operativa
+                else if (response.code() == 409) {
+                    Toast.makeText(getContext(), BusSelectionProcessor.MSG_ERROR_BUS_OCCUPIED, Toast.LENGTH_LONG).show();
                 } else {
                     abrirTurnoContingenciaOffline(turnoLocal, tipoRuta, rutaId, busId);
                 }
@@ -168,7 +174,7 @@ public class CobradorMainFragment extends Fragment {
         progressBar.setVisibility(View.GONE);
         btnAbrirTurno.setEnabled(true);
         Toast.makeText(getContext(), "📶 Modo Contingencia: Registrando en Room Local.", Toast.LENGTH_SHORT).show();
-        turnoLocal.serverTurnoId = 0; // Se enlazará al sincronizar
+        turnoLocal.serverTurnoId = 0;
         turnoLocal.sincronizado = false;
         long idGenerado = repo.abrirTurno(turnoLocal);
         completarTransicionVenta(idGenerado, tipoRuta, rutaId, busId);
