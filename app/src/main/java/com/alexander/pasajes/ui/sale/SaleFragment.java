@@ -63,6 +63,7 @@ public class SaleFragment extends Fragment {
     private final QrEncryptionProcessor qrEncryptionProcessor = new QrEncryptionProcessor();
     private final LocalPersistenceProcessor persistenceProcessor = new LocalPersistenceProcessor();
     private final DoubleShiftProcessor doubleShiftProcessor = new DoubleShiftProcessor();
+    private final VisualConfirmationProcessor visualConfirmationProcessor = new VisualConfirmationProcessor();
 
 
     @Nullable
@@ -416,7 +417,10 @@ public class SaleFragment extends Fragment {
             }
         }
 
-        if (guardado) {
+        String dictamenVisual = visualConfirmationProcessor.evaluarConfirmacionVisual(guardado);
+
+        if (VisualConfirmationProcessor.STATUS_CONFIRMED.equals(dictamenVisual)) {
+            // Despliega en la pantalla del celular el mensaje verde confirmando el guardado local
             Toast.makeText(getContext(), "✅ Boleto guardado en Room", Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(getContext(), "❌ Error: No se guardó el boleto", Toast.LENGTH_LONG).show();
