@@ -60,6 +60,7 @@ public class SaleFragment extends Fragment {
     private boolean huboFallaMecanicaPapel = false;
     private boolean huboFallaDesconexion = false;
     private Boleto ultimoBoletoRegistrado = null;
+    private final QrEncryptionProcessor qrEncryptionProcessor = new QrEncryptionProcessor();
 
 
     @Nullable
@@ -345,7 +346,31 @@ public class SaleFragment extends Fragment {
         boleto.origen = "DIRECTO".equals(tipoRuta) ? "Mala" : repo.getParaderoById(origenSeleccionado).nombre;
         boleto.destino = "DIRECTO".equals(tipoRuta) ? "Lima" : repo.getParaderoById(destinoSeleccionado).nombre;
         boleto.rutaNombre = tipoRuta;
+
+        // Generación del token criptográfico base
         boleto.hash = HashUtils.generarToken(bus.placa, boleto.fechaHora, tipoPasajeroActual, precioCentavos, metodoPago);
+
+        // ️ INTERCEPTOR MÁQUINA DE ESTADOS QR (Mapeo CP97, CP98 y CP99)
+        boolean forzarFallaDatosCorruptos = (boleto.hash == null || bus.placa.isEmpty());
+        boolean simularFallaRamDeGráficos = false; // Flag preventiva de memoria
+
+        String dictamenQr = qrEncryptionProcessor.evaluarGeneracionQr(
+                boleto.hash,
+                bus.placa,
+                precioCentavos,
+                forzarFallaDatosCorruptos,
+                simularFallaRamDeGráficos
+        );
+
+        if (QrEncryptionProcessor.MSG_ERROR_CORRUPT.equals(dictamenQr)) {
+            // [CP98]: Cancela de inmediato el proceso de preventa y limpia la cola local
+            Toast.makeText(getContext(), dictamenQr, Toast.LENGTH_LONG).show();
+            return;
+        } else if (QrEncryptionProcessor.STATUS_MEMORY_RECOVERED.equals(dictamenQr)) {
+            // [CP99]: Notifica la recuperación automática de RAM en milisegundos
+            Toast.makeText(getContext(), "Módulo de gráficos reiniciado con éxito.", Toast.LENGTH_SHORT).show();
+        }
+
         Tarifa tarifaUsada = repo.getTarifa(rutaId, origenSeleccionado, destinoSeleccionado, tipoPasajeroActual);
         boleto.tarifarioId = (tarifaUsada != null) ? tarifaUsada.id : 3;
         // Insertar en Room
