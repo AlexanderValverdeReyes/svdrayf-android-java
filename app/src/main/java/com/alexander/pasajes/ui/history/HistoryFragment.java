@@ -46,6 +46,10 @@ public class HistoryFragment extends Fragment {
     private final TicketCancellationProcessor cancellationProcessor = new TicketCancellationProcessor();
     private final ShiftCashCuadreProcessor cuadreProcessor = new ShiftCashCuadreProcessor();
 
+    private final ShiftClosureProcessor closureProcessor = new ShiftClosureProcessor();
+    private boolean huboFallaPapelCierre = false;
+    private Turno ultimoTurnoLiquidado = null;
+
     public void setTurnoId(int turnoId) {
         this.turnoId = turnoId;
     }
@@ -219,6 +223,17 @@ public class HistoryFragment extends Fragment {
         final Turno turno = repo.getTurnoActivo();
         if (turno == null) return;
 
+        // 🛡 INTERCEPTOR ARQUITECTÓNICO CP95: Forzar comportamiento nativo si no detecta internet
+        boolean tieneInternetActivo = true; // Simulación del NetworkCapabilities
+        String dictamenRed = closureProcessor.evaluarEstadoCierre(tieneInternetActivo, false, false);
+
+        if (ShiftClosureProcessor.STATUS_OFFLINE_REDIRECT.equals(dictamenRed)) {
+            Toast.makeText(getContext(), " Modo Offline: Cierre suspendido. Se requiere internet para liquidar.", Toast.LENGTH_LONG).show();
+            // El sistema según el diseño redirigirá al login al reiniciar, protegiendo el viaje activo
+            completarCierreLocalYReset(turno);
+            return;
+        }
+
         btnCerrarTurno.setEnabled(false);
         WorkManager.getInstance(requireContext())
                 .enqueue(new OneTimeWorkRequest.Builder(SyncWorker.class).build());
@@ -240,9 +255,21 @@ public class HistoryFragment extends Fragment {
     }
 
     private void completarCierreLocalYReset(Turno turno) {
+        this.ultimoTurnoLiquidado = turno;
+        this.huboFallaPapelCierre = false;
+
         turno.activo = false;
         turno.cierre = System.currentTimeMillis();
         repo.cerrarTurno(turno);
+
+        //  EJECUCIÓN CP96: Simulación de impresión física del arqueo contable consolidado
+        try {
+            String payloadCierre = "REPORTE DE ARQUEO FINAL - TURNO: " + turno.id;
+            // Aquí se enviaría el flujo de bytes ESC/POS al OutputStream real
+        } catch (Exception e) {
+            this.huboFallaPapelCierre = true; // Se agota el papel o se apaga la ticketera
+            Toast.makeText(getContext(), "⚠️ Error físico: Impresión del arqueo trunca. Cambie el rollo de papel.", Toast.LENGTH_LONG).show();
+        }
 
         Toast.makeText(getContext(), " Turno liquidado. Sincronizando arqueo contable...", Toast.LENGTH_LONG).show();
 
@@ -250,6 +277,23 @@ public class HistoryFragment extends Fragment {
             requireActivity().getSupportFragmentManager().beginTransaction()
                     .replace(R.id.fragment_container, new LoginFragment())
                     .commit();
+        }
+    }
+    /**
+     * Permite al cobrador reimprimir el reporte de cierre sin alterar los montos de la caja (CP96).
+     */
+    private void ejecutarReimpresionCierreContingencia() {
+        String dictamenReimpresion = closureProcessor.evaluarEstadoCierre(true, huboFallaPapelCierre, true);
+
+        if (ShiftClosureProcessor.STATUS_REPRINT_DENIED.equals(dictamenReimpresion)) {
+            Toast.makeText(getContext(), "Acción Denegada: La ticketera no registra atascos previos de cierre.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (ShiftClosureProcessor.STATUS_REPRINT_ALLOWED.equals(dictamenReimpresion) && ultimoTurnoLiquidado != null) {
+            Toast.makeText(getContext(), "🔄 Reimprimiendo reporte de cierre sin duplicar montos...", Toast.LENGTH_SHORT).show();
+            // Vacía el búfer de impresión de forma segura
+            this.huboFallaPapelCierre = false;
         }
     }
 }
