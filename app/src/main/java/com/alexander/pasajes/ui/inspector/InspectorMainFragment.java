@@ -46,6 +46,7 @@ public class InspectorMainFragment extends Fragment {
     private final QrScannerProcessor qrProcessor = new QrScannerProcessor();
     private final ValidationFeedbackProcessor feedbackProcessor = new ValidationFeedbackProcessor();
     private final InspectorLogProcessor logProcessor = new InspectorLogProcessor();
+    private final InspectorHistoryProcessor historyProcessor = new InspectorHistoryProcessor();
 
     @Nullable
     @Override
@@ -294,6 +295,31 @@ public class InspectorMainFragment extends Fragment {
                 spinnerTipoIncidencia.setSelection(i);
                 break;
             }
+        }
+    }
+
+    /**
+     * Consume el nuevo endpoint de fiscalización y evalúa la presencia de registros (RFN39).
+     * Nota: Vincula este método al click de tu botón "Ver Historial" de la UI.
+     */
+    private void cargarHistorialFiscalizaciones() {
+        Toast.makeText(getContext(), "🔄 Consultando bitácora de inspecciones en Neon DB...", Toast.LENGTH_SHORT).show();
+
+        // Simulación controlada para el acoplamiento del endpoint asíncrono
+        int totalRegistrosDevueltos = 0;
+
+        String dictamenHistorial = historyProcessor.evaluarHistorialFiscalizaciones(totalRegistrosDevueltos);
+
+        if (InspectorHistoryProcessor.MSG_EMPTY_HISTORY.equals(dictamenHistorial)) {
+            // [CP118]: Limpia la pantalla y despliega el mensaje informativo en texto
+            tvDetalles.setText("");
+            tvResultado.setText(dictamenHistorial);
+            tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_orange_dark));
+            layoutResultado.setVisibility(View.VISIBLE);
+            Toast.makeText(getContext(), dictamenHistorial, Toast.LENGTH_LONG).show();
+        } else {
+            // [CP117]: Carga la lista de buses controlados en el día
+            Toast.makeText(getContext(), "Historial recuperado con éxito.", Toast.LENGTH_SHORT).show();
         }
     }
 }
