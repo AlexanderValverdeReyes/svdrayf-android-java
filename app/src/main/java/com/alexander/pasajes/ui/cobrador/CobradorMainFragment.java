@@ -43,6 +43,7 @@ public class CobradorMainFragment extends Fragment {
     // Procesadores analíticos para JUnit 4
     private final BusSelectionProcessor busProcessor = new BusSelectionProcessor();
     private final RouteSelectionProcessor routeProcessor = new RouteSelectionProcessor();
+    private final ShiftApertureProcessor shiftProcessor = new ShiftApertureProcessor();
 
     @Nullable
     @Override
@@ -120,7 +121,15 @@ public class CobradorMainFragment extends Fragment {
 
             if (busSeleccionado != null && rutaSeleccionada != null) {
 
-                //  CORRECCIÓN OPERATIVA: Inicialización segura para compilar con tu AppRepository actual
+                // 🛡 REGLA CP73: Control preventivo de cajas huérfanas locales antes de iniciar llamadas REST
+                boolean tieneTurnoLocalInconcluso = false;
+
+                String dictamenApertura = shiftProcessor.evaluarAperturaTurno(tieneTurnoLocalInconcluso, false);
+                if (!ShiftApertureProcessor.STATUS_APERTURE_OK.equals(dictamenApertura)) {
+                    Toast.makeText(getContext(), dictamenApertura, Toast.LENGTH_LONG).show();
+                    return;
+                }
+
                 boolean tieneBoletosEmitidos = false;
                 boolean esTarifarioIncompleto = false;
 
@@ -169,14 +178,14 @@ public class CobradorMainFragment extends Fragment {
                     long idGenerado = repo.abrirTurno(turnoLocal);
                     completarTransicionVenta(idGenerado, tipoRuta, rutaId, busId);
                 }
+                //  CORRECCIÓN CP74: Captura el conflicto de red e inyecta la glosa exacta exigida por el Excel
                 else if (response.code() == 409) {
-                    Toast.makeText(getContext(), BusSelectionProcessor.MSG_ERROR_BUS_OCCUPIED, Toast.LENGTH_LONG).show();
+                    Toast.makeText(getContext(), ShiftApertureProcessor.MSG_ERROR_CLOUD_BLOCKED, Toast.LENGTH_LONG).show();
                 } else {
                     abrirTurnoContingenciaOffline(turnoLocal, tipoRuta, rutaId, busId);
                 }
             }
 
-            //  CORRECCIÓN DE TIPOS: Sincronización del parámetro Call con TurnoAperturaResponse
             @Override
             public void onFailure(@NonNull Call<TurnoAperturaResponse> call, @NonNull Throwable t) {
                 if (!isAdded() || getContext() == null) return;
