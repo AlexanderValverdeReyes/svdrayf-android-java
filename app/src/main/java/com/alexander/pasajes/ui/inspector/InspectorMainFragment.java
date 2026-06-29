@@ -45,6 +45,7 @@ public class InspectorMainFragment extends Fragment {
     //  Conector perimetral para el análisis del escáner de hardware (Solución RFN36)
     private final QrScannerProcessor qrProcessor = new QrScannerProcessor();
     private final ValidationFeedbackProcessor feedbackProcessor = new ValidationFeedbackProcessor();
+    private final InspectorLogProcessor logProcessor = new InspectorLogProcessor();
 
     @Nullable
     @Override
@@ -217,6 +218,19 @@ public class InspectorMainFragment extends Fragment {
         String observaciones = etObservaciones.getText().toString().trim();
         String tipoIncidencia = spinnerTipoIncidencia.getSelectedItem() != null ?
                 spinnerTipoIncidencia.getSelectedItem().toString() : "NORMAL";
+
+        // 🛡 REGLA OPERATIVA DE CONTINGENCIA DE ENTRADAS (Mapeo CP115 y CP116)
+        String dictamenLog = logProcessor.evaluarBitacoraControl(pasajerosFisicos, observaciones, isBoletoValidoYActivo);
+
+        if (InspectorLogProcessor.MSG_ERROR_ZERO_OR_EMPTY.equals(dictamenLog)) {
+            etPasajerosFisicos.setError(dictamenLog); // Resalta la casilla en color rojo nativo
+            Toast.makeText(getContext(), dictamenLog, Toast.LENGTH_LONG).show();
+            return;
+        } else if (InspectorLogProcessor.MSG_ERROR_EMPTY_OBSERVATION.equals(dictamenLog)) {
+            etObservaciones.setError(dictamenLog);
+            Toast.makeText(getContext(), dictamenLog, Toast.LENGTH_LONG).show();
+            return;
+        }
 
         if (isBoletoValidoYActivo) {
             if (observaciones.isEmpty()) {
