@@ -44,6 +44,7 @@ public class HistoryFragment extends Fragment {
     private TextView tvResumenCuadre;
     private int turnoId;
     private final TicketCancellationProcessor cancellationProcessor = new TicketCancellationProcessor();
+    private final ShiftCashCuadreProcessor cuadreProcessor = new ShiftCashCuadreProcessor();
 
     public void setTurnoId(int turnoId) {
         this.turnoId = turnoId;
@@ -96,9 +97,29 @@ public class HistoryFragment extends Fragment {
             }
         }
 
-        tvResumenCuadre.setText(String.format(Locale.getDefault(),
-                "--- ARQUEO DE CAJA GENERAL ---\nBoletos Válidos: %d | Anulados: %d\nRecaudado QR: S/ %.2f\n💰 EFECTIVO A ENTREGAR: S/ %.2f",
-                totalEmitidos, totalAnulados, qrRecaudadoCentavos / 100.0, efectivoRecaudadoCentavos / 100.0));
+        // 🛡 ANÁLISIS PERIMETRAL DE INTEGRIDAD FINANCIERA (Mapeo CP91, CP92 y CP93)
+        int totalBoletosProcesados = totalEmitidos + totalAnulados;
+        boolean desalineacionPorApagadoImprevisto = false; // Flag de contingencia de SQLite/Room
+
+        String dictamenCuadre = cuadreProcessor.evaluarEstadoCuadre(totalBoletosProcesados, desalineacionPorApagadoImprevisto);
+
+        StringBuilder sbResumen = new StringBuilder();
+        sbResumen.append("--- ARQUEO DE CAJA GENERAL ---\n");
+        sbResumen.append(String.format(Locale.getDefault(), "Boletos Válidos: %d | Anulados: %d\n", totalEmitidos, totalAnulados));
+        sbResumen.append(String.format(Locale.getDefault(), "Recaudado QR: S/ %.2f\n", qrRecaudadoCentavos / 100.0));
+        sbResumen.append(String.format(Locale.getDefault(), "💰 EFECTIVO A ENTREGAR: S/ %.2f", efectivoRecaudadoCentavos / 100.0));
+
+        // Inyección dinámica de alertas según dictamen contable del procesador
+        if (ShiftCashCuadreProcessor.MSG_EMPTY_SHIFT.equals(dictamenCuadre)) {
+            // [CP92]: Agrega el mensaje explícito mandatorio para turnos limpios sin transacciones
+            sbResumen.append("\n\n📢 ").append(dictamenCuadre);
+        } else if (ShiftCashCuadreProcessor.MSG_WARN_CORRUPTED.equals(dictamenCuadre)) {
+            // [CP93]: Inyecta el aviso de advertencia en amarillo para la recomendación cloud
+            sbResumen.append("\n\n⚠️ ").append(dictamenCuadre);
+            Toast.makeText(getContext(), dictamenCuadre, Toast.LENGTH_LONG).show();
+        }
+
+        tvResumenCuadre.setText(sbResumen.toString());
 
         BoletoAdapter adapter = new BoletoAdapter(lista);
         rvBoletos.setLayoutManager(new LinearLayoutManager(requireContext()));
