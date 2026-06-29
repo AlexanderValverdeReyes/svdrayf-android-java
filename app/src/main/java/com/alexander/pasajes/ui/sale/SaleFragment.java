@@ -56,6 +56,10 @@ public class SaleFragment extends Fragment {
     private final DigitalPaymentProcessor digitalPaymentProcessor = new DigitalPaymentProcessor();
     private final AuditAlertProcessor auditProcessor = new AuditAlertProcessor();
     private int contadorCambiosMetodo = 0; // Telemetría de pulsaciones en pasillo
+    private final TicketPrintProcessor ticketPrintProcessor = new TicketPrintProcessor();
+    private boolean huboFallaMecanicaPapel = false;
+    private boolean huboFallaDesconexion = false;
+    private Boleto ultimoBoletoRegistrado = null;
 
 
     @Nullable
@@ -146,7 +150,7 @@ public class SaleFragment extends Fragment {
                 if (rb != null) {
                     String tagPasajero = (String) rb.getTag();
 
-                    // 🛡️ INTERCEPTOR DE SEGURIDAD OPERATIVA (Mapeo CP76 y CP77)
+                    // 🛡 INTERCEPTOR DE SEGURIDAD OPERATIVA (Mapeo CP76 y CP77)
                     String dictamen = passengerProcessor.evaluarSeleccionPasajero(
                             origenSeleccionado,
                             destinoSeleccionado,
@@ -365,14 +369,36 @@ public class SaleFragment extends Fragment {
 
         abrioModuloQrPreviamente = false;
 
+        this.ultimoBoletoRegistrado = boleto;
+        this.huboFallaMecanicaPapel = false;
+        this.huboFallaDesconexion = false;
+
         if (bluetoothConnection != null) {
             new Thread(() -> {
-                PrinterHelper.imprimirBoleto(requireContext(), bus.placa, tipoPasajeroActual,
-                        precioCentavos / 100.0, metodoPago, boleto.hash, bluetoothConnection);
+                try {
+                    // Simulación de canal de salida físico ESC/POS
+                    String payloadNormal = "BOLETO " + boleto.uuid;
+                    String payloadFinal = ticketPrintProcessor.formatearPayloadSeguro(payloadNormal, false);
+
+                    PrinterHelper.imprimirBoleto(requireContext(), bus.placa, tipoPasajeroActual,
+                            precioCentavos / 100.0, metodoPago, boleto.hash, bluetoothConnection);
+
+                } catch (Exception e) {
+                    // 🔌 Interceptación de errores físicos en caliente de la ticketera
+                    if (e.getMessage() != null && e.getMessage().contains("paper")) {
+                        huboFallaMecanicaPapel = true; // [CP87] Atasco detectado
+                    } else {
+                        huboFallaDesconexion = true;   // [CP88] Caída de radiofrecuencia
+                    }
+                    requireActivity().runOnUiThread(() ->
+                            Toast.makeText(getContext(), "⚠️ Interrupción de hardware. Verifique el rodillo.", Toast.LENGTH_LONG).show()
+                    );
+                }
             }).start();
             Toast.makeText(getContext(), "Boleto emitido e impreso.", Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(getContext(), "Impresora fuera de línea.", Toast.LENGTH_LONG).show();
+            this.huboFallaDesconexion = true; // Impresora apagada de antemano
+            Toast.makeText(getContext(), "Impresora fuera de línea. Habilitando modo re-vinculación.", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -410,6 +436,54 @@ public class SaleFragment extends Fragment {
                 bluetoothConnection = null;
                 tvEstadoImpresora.setText("Ticketera: Error de enlace.");
             }
+        }
+    }
+    /**
+     * Ejecuta la reimpresión contable controlada cruzando las flags analíticas de la ticketera.
+     */
+    private void ejecutarReimpresionDeContingencia(boolean esBotonReconectarPresionado) {
+        if (ultimoBoletoRegistrado == null) {
+            Toast.makeText(getContext(), "No existe boleto previo en memoria para reimprimir.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Si presionó el botón específico de re-vincular, forzamos la reconexión de radio del periférico
+        if (esBotonReconectarPresionado && huboFallaDesconexion) {
+            verificarPermisosYConectar();
+        }
+
+        String dictamenImpresion = ticketPrintProcessor.evaluarSolicitudImpresion(
+                true,
+                huboFallaMecanicaPapel,
+                huboFallaDesconexion,
+                true
+        );
+
+        if (TicketPrintProcessor.STATUS_DENIED.equals(dictamenImpresion)) {
+            Toast.makeText(getContext(), "Acción rechazada por seguridad: Dispositivo sano o transacción inválida.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        // Habilitación controlada y bimodal según la falla de hardware capturada
+        boolean requiereGlosaAuditoria = TicketPrintProcessor.STATUS_CAN_REPRINT_JAM.equals(dictamenImpresion);
+
+        if (bluetoothConnection != null) {
+            new Thread(() -> {
+                String payloadBase = "BOLETO " + ultimoBoletoRegistrado.uuid;
+                // Inyección analítica inmutable de la glosa anti-clonación
+                String payloadAuditoria = ticketPrintProcessor.formatearPayloadSeguro(payloadBase, requiereGlosaAuditoria);
+
+                PrinterHelper.imprimirBoleto(requireContext(), "BUS-PLACA", ultimoBoletoRegistrado.tipoPasajero,
+                        ultimoBoletoRegistrado.precioCentavos / 100.0, ultimoBoletoRegistrado.metodoPago,
+                        ultimoBoletoRegistrado.hash, bluetoothConnection);
+
+                // Reiniciamos las flags tras el vaciado correcto del búfer físico
+                huboFallaMecanicaPapel = false;
+                huboFallaDesconexion = false;
+            }).start();
+            Toast.makeText(getContext(), "Reimpresión completada con éxito.", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(getContext(), "Fallo crítico: El periférico térmico sigue sin responder.", Toast.LENGTH_LONG).show();
         }
     }
 }
