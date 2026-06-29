@@ -53,6 +53,7 @@ public class SaleFragment extends Fragment {
     private boolean abrioModuloQrPreviamente = false;
     private final PassengerTypeProcessor passengerProcessor = new PassengerTypeProcessor();
     private final RouteStopsProcessor routeStopsProcessor = new RouteStopsProcessor();
+    private final DigitalPaymentProcessor digitalPaymentProcessor = new DigitalPaymentProcessor();
 
 
     @Nullable
@@ -106,11 +107,33 @@ public class SaleFragment extends Fragment {
         }
 
         rgMetodoPago.setOnCheckedChangeListener((group, checkedId) -> {
+            String metodoSeleccionado = (checkedId == R.id.rbQR) ? "QR" : "EFECTIVO";
+
+            // Simulación perimetral de hardware: verificar si el recurso existe localmente (CP83)
+            boolean archivoQrExiste = true;
+            boolean esAlternanciaUltimoMomento = ("EFECTIVO".equals(metodoSeleccionado) && abrioModuloQrPreviamente);
+
+            String dictamenPago = digitalPaymentProcessor.evaluarModalidadPago(metodoSeleccionado, archivoQrExiste, esAlternanciaUltimoMomento);
+
+            if (DigitalPaymentProcessor.MSG_ERROR_QR_MISSING.equals(dictamenPago)) {
+                Toast.makeText(getContext(), dictamenPago, Toast.LENGTH_LONG).show();
+                ivQR.setVisibility(View.GONE);
+                rgMetodoPago.clearCheck(); // Forzar reinicio de selección
+                return;
+            }
+
             if (checkedId == R.id.rbQR) {
                 ivQR.setVisibility(View.VISIBLE);
                 abrioModuloQrPreviamente = true;
             } else {
                 ivQR.setVisibility(View.GONE);
+                if (DigitalPaymentProcessor.STATUS_CASH_CONMUTED.equals(dictamenPago)) {
+                    // Mapeo contable CP82: Persistir la bandera obligatoria exigida por el Excel
+                    SharedPreferences.Editor editor = prefs.edit();
+                    editor.putBoolean("huboIntentoQR", true);
+                    editor.apply();
+                    Toast.makeText(getContext(), "Alternancia registrada en auditoría local.", Toast.LENGTH_SHORT).show();
+                }
             }
         });
 
