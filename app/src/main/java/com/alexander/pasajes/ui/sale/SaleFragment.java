@@ -54,6 +54,8 @@ public class SaleFragment extends Fragment {
     private final PassengerTypeProcessor passengerProcessor = new PassengerTypeProcessor();
     private final RouteStopsProcessor routeStopsProcessor = new RouteStopsProcessor();
     private final DigitalPaymentProcessor digitalPaymentProcessor = new DigitalPaymentProcessor();
+    private final AuditAlertProcessor auditProcessor = new AuditAlertProcessor();
+    private int contadorCambiosMetodo = 0; // Telemetría de pulsaciones en pasillo
 
 
     @Nullable
@@ -107,6 +109,7 @@ public class SaleFragment extends Fragment {
         }
 
         rgMetodoPago.setOnCheckedChangeListener((group, checkedId) -> {
+            contadorCambiosMetodo++;
             String metodoSeleccionado = (checkedId == R.id.rbQR) ? "QR" : "EFECTIVO";
 
             // Simulación perimetral de hardware: verificar si el recurso existe localmente (CP83)
@@ -308,7 +311,24 @@ public class SaleFragment extends Fragment {
             return;
         }
 
+        //  ANÁLISIS DE COMPORTAMIENTO SILENCIOSO (Mapeo CP84 y CP85)
+        String dictamenAuditoria = auditProcessor.evaluarAlertaAuditoria(
+                abrioModuloQrPreviamente,
+                metodoPago,
+                contadorCambiosMetodo
+        );
+
+        boolean dispararAlertaOculta = AuditAlertProcessor.STATUS_ALERTA_FRAUDE.equals(dictamenAuditoria);
+
         final Boleto boleto = new Boleto();
+
+        // NOTA DE ARQUITECTURA: Guardamos las flags en SharedPreferences preventivas para el Sync
+        // o directamente en tu entidad Room si posees las columnas de telemetría local de Postgres
+        requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit()
+                .putBoolean("alerta_auditoria_qr_actual", dispararAlertaOculta)
+                .putBoolean("hubo_intento_qr_actual", abrioModuloQrPreviamente)
+                .apply();
+
         boleto.turnoId = idTurnoReal;
         boleto.tipoPasajero = tipoPasajeroActual;
         boleto.precioCentavos = precioCentavos;
