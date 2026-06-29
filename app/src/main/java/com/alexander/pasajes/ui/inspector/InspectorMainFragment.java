@@ -1,6 +1,11 @@
 package com.alexander.pasajes.ui.inspector;
 
+import android.Manifest;
+import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -20,6 +25,8 @@ import retrofit2.Response;
 
 public class InspectorMainFragment extends Fragment {
 
+    private static final int REQUEST_CAMERA_PERMISSION = 300;
+
     private EditText etHash;
     private Button btnValidar;
     private LinearLayout layoutResultado;
@@ -32,12 +39,11 @@ public class InspectorMainFragment extends Fragment {
 
     private String ultimoIdBoleto = null;
     private String ultimoHash = null;
-
-    // ADICIÓN CRÍTICA: Variable global para retener el id_turno legítimo enviado por Neon DB
     private int ultimoIdTurno = 0;
-
-    // ADICIÓN DE CONTROL: Determina si el boleto es vigente para habilitar la opción NORMAL
     private boolean isBoletoValidoYActivo = false;
+
+    //  Conector perimetral para el análisis del escáner de hardware (Solución RFN36)
+    private final QrScannerProcessor qrProcessor = new QrScannerProcessor();
 
     @Nullable
     @Override
@@ -66,6 +72,38 @@ public class InspectorMainFragment extends Fragment {
         btnEnviarReporte.setOnClickListener(v -> enviarReporte());
     }
 
+    /**
+     * 👁 ACTIVADOR DE PREVENTA DE ESCÁNEO (Para conectar con tu botón de cámara en la semana)
+     */
+    private void ejecutarInicializacionEscanerQr() {
+        // [CP112]: Verificación nativa de permisos del manifiesto antes de encender el hardware
+        boolean tienePermiso = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+
+        String dictamenPermisos = qrProcessor.evaluarEscaneoQr(tienePermiso, false, 0);
+
+        if (QrScannerProcessor.MSG_ERROR_PERMISOS.equals(dictamenPermisos)) {
+            Toast.makeText(getContext(), dictamenPermisos, Toast.LENGTH_LONG).show();
+            // Lógica perimetral de solicitud interactiva de Android
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
+            return;
+        }
+
+        Toast.makeText(getContext(), "Abriendo visor de cámara de fiscalización...", Toast.LENGTH_SHORT).show();
+
+        //  [CP111]: Lanzamiento del temporizador asíncrono de 3 segundos ante códigos borrosos o rotos
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            boolean escaneoCompletadoConExito = false; // Simulación de búfer de imagen trunco
+
+            String dictamenLectura = qrProcessor.evaluarEscaneoQr(true, escaneoCompletadoConExito, 3);
+
+            if (QrScannerProcessor.MSG_ERROR_ILEGIBLE.equals(dictamenLectura)) {
+                // Detiene el escáner y fuerza el reencauce manual indicando la glosa del Excel
+                Toast.makeText(getContext(), dictamenLectura, Toast.LENGTH_LONG).show();
+                etHash.requestFocus(); // Mueve el foco al input de texto
+            }
+        }, 3000);
+    }
+
     private void validarBoleto() {
         String codigo = etHash.getText().toString().trim();
         if (codigo.isEmpty()) {
@@ -75,12 +113,13 @@ public class InspectorMainFragment extends Fragment {
 
         btnValidar.setEnabled(false);
         layoutResultado.setVisibility(View.GONE);
-        isBoletoValidoYActivo = false; // Resetear bandera de control en cada consulta
+        isBoletoValidoYActivo = false;
 
         api.verificarBoleto(codigo).enqueue(new Callback<BuscarBoletoResponse>() {
             @Override
             public void onResponse(@NonNull Call<BuscarBoletoResponse> call,
                                    @NonNull Response<BuscarBoletoResponse> response) {
+                if (!isAdded() || getContext() == null) return;
                 btnValidar.setEnabled(true);
                 layoutResultado.setVisibility(View.VISIBLE);
 
@@ -90,23 +129,20 @@ public class InspectorMainFragment extends Fragment {
                     ultimoHash = codigo;
                     ultimoIdTurno = b.idTurno;
 
-                    // ESCENARIO A: El turno ya fue CERRADO (Fechas pasadas o liquidación culminada)
                     if ("CERRADO".equals(b.estadoTurno)) {
                         tvResultado.setText("BOLETO INVÁLIDO: TURNO CERRADO");
                         tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark));
                         tvDetalles.setText("Intento de fraude: Este boleto pertenece a una ruta del pasado que ya fue cerrada.");
                         seleccionarSpinnerPorValor("EVASION_PASAJE");
 
-                        // ESCENARIO B: El boleto figura como ANULADO en el sistema pero se encuentra físico
                     } else if ("ANULADO".equals(b.estadoBoleto)) {
                         tvResultado.setText("ALERTA: BOLETO ANULADO");
                         tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_orange_dark));
                         tvDetalles.setText("Alerta contable: El cobrador anuló este pasaje en su app, pero el usuario lo tiene en mano.");
                         seleccionarSpinnerPorValor("ANULACION_INDEBIDA");
 
-                        // ESCENARIO C: El boleto es VÁLIDO y pertenece a un viaje en ejecución (ABIERTO)
                     } else if ("VALIDO".equals(b.estadoBoleto) && "ABIERTO".equals(b.estadoTurno)) {
-                        isBoletoValidoYActivo = true; // Activa permiso para reporte NORMAL
+                        isBoletoValidoYActivo = true;
                         tvResultado.setText("BOLETO VÁLIDO - JORNADA ACTIVA");
                         tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
 
@@ -130,6 +166,7 @@ public class InspectorMainFragment extends Fragment {
 
             @Override
             public void onFailure(@NonNull Call<BuscarBoletoResponse> call, @NonNull Throwable t) {
+                if (!isAdded() || getContext() == null) return;
                 btnValidar.setEnabled(true);
                 Toast.makeText(getContext(), "Error de conexión al validar", Toast.LENGTH_SHORT).show();
             }
@@ -160,19 +197,15 @@ public class InspectorMainFragment extends Fragment {
         String tipoIncidencia = spinnerTipoIncidencia.getSelectedItem() != null ?
                 spinnerTipoIncidencia.getSelectedItem().toString() : "NORMAL";
 
-        //  REGLAS DE NEGOCIO PARA CONSOLIDACIÓN DE REPORTES
         if (isBoletoValidoYActivo) {
-            // Si la operación es correcta, permitimos enviar como NORMAL con texto automático si está vacío
             if (observaciones.isEmpty()) {
                 observaciones = "Inspección de rutina: Todo fluye con normalidad y sin incidencias.";
             }
         } else {
-            // Bloqueo preventivo: Si el boleto es inválido/anulado/pasado, no se puede marcar como NORMAL
             if (tipoIncidencia.contains("NORMAL")) {
                 Toast.makeText(getContext(), "Error: No puede registrar como NORMAL una situación con boletos anulados o de turnos cerrados.", Toast.LENGTH_LONG).show();
                 return;
             }
-            // Forzar descripción de auditoría obligatoria en caso de irregularidades
             if (observaciones.isEmpty()) {
                 Toast.makeText(getContext(), "Debe ingresar una observación manual detallando la irregularidad encontrada.", Toast.LENGTH_SHORT).show();
                 return;
@@ -192,6 +225,7 @@ public class InspectorMainFragment extends Fragment {
         api.inspeccion(request).enqueue(new Callback<GenericResponse>() {
             @Override
             public void onResponse(@NonNull Call<GenericResponse> call, @NonNull Response<GenericResponse> response) {
+                if (!isAdded() || getContext() == null) return;
                 btnEnviarReporte.setEnabled(true);
                 if (response.isSuccessful()) {
                     Toast.makeText(getContext(), "Reporte de fiscalización enviado correctamente.", Toast.LENGTH_SHORT).show();
@@ -209,13 +243,13 @@ public class InspectorMainFragment extends Fragment {
 
             @Override
             public void onFailure(@NonNull Call<GenericResponse> call, @NonNull Throwable t) {
+                if (!isAdded() || getContext() == null) return;
                 btnEnviarReporte.setEnabled(true);
                 Toast.makeText(getContext(), "Error crítico de enlace con la central.", Toast.LENGTH_SHORT).show();
             }
         });
     }
 
-    // 🚀 MÉTODO AUXILIAR AUTOMÁTICO: Busca e iguala la selección del spinner según las reglas lógicas
     private void seleccionarSpinnerPorValor(String valorBuscar) {
         SpinnerAdapter adapter = spinnerTipoIncidencia.getAdapter();
         if (adapter == null) return;
