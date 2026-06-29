@@ -51,6 +51,7 @@ public class SaleFragment extends Fragment {
     private String tipoPasajeroActual = null;
 
     private boolean abrioModuloQrPreviamente = false;
+    private final PassengerTypeProcessor passengerProcessor = new PassengerTypeProcessor();
 
 
     @Nullable
@@ -92,11 +93,11 @@ public class SaleFragment extends Fragment {
             if (bus != null) tvBusInfo.setText(String.format("Unidad: %s", bus.placa));
         }
 
-        // 🚀 CONTROL MATRICIAL DE MODALIDADES DE VIAJE CONECTADO A POSTGRESQL
+        //  CONTROL MATRICIAL DE MODALIDADES DE VIAJE CONECTADO A POSTGRESQL
         if ("DIRECTO".equals(tipoRuta)) {
             layoutTramos.setVisibility(View.GONE);
-            origenSeleccionado = 1;  // ✅ CORREGIDO: Paradero Mala es ID 1 en tu Neon DB
-            destinoSeleccionado = 2; // ✅ CORREGIDO: Paradero Lima es ID 2 en tu Neon DB
+            origenSeleccionado = 1;  //  CORREGIDO: Paradero Mala es ID 1 en tu Neon DB
+            destinoSeleccionado = 2; // CORREGIDO: Paradero Lima es ID 2 en tu Neon DB
             inyectarPasajesDirectos();
         } else {
             layoutTramos.setVisibility(View.VISIBLE);
@@ -116,7 +117,30 @@ public class SaleFragment extends Fragment {
             if (checkedId != -1) {
                 RadioButton rb = view.findViewById(checkedId);
                 if (rb != null) {
-                    tipoPasajeroActual = (String) rb.getTag();
+                    String tagPasajero = (String) rb.getTag();
+
+                    // 🛡️ INTERCEPTOR DE SEGURIDAD OPERATIVA (Mapeo CP76 y CP77)
+                    String dictamen = passengerProcessor.evaluarSeleccionPasajero(
+                            origenSeleccionado,
+                            destinoSeleccionado,
+                            tagPasajero,
+                            regimenDia
+                    );
+
+                    if (PassengerTypeProcessor.MSG_ERROR_MISSING_STOPS.equals(dictamen)) {
+                        // Despliega la notificación flotante y cancela el cálculo del costo
+                        Toast.makeText(getContext(), dictamen, Toast.LENGTH_LONG).show();
+                        tipoPasajeroActual = null;
+                        tvPrecio.setText("Tarifa: No indexada");
+                        return;
+                    }
+
+                    if (PassengerTypeProcessor.MSG_WARN_UNIVERISTARIO_HOLIDAY.equals(dictamen)) {
+                        // Lanza la advertencia preventiva flotante sin interrumpir el flujo lícito
+                        Toast.makeText(getContext(), dictamen, Toast.LENGTH_LONG).show();
+                    }
+
+                    tipoPasajeroActual = tagPasajero;
                     actualizarPrecio();
                 }
             }
@@ -135,10 +159,10 @@ public class SaleFragment extends Fragment {
 
     private void inyectarPasajesDirectos() {
         rgTipoPasajero.removeAllViews();
-        // ✅ CORREGIDO: Nombres de categorías homologados al 100% con tu base de datos
+        //  CORREGIDO: Nombres de categorías homologados al 100% con tu base de datos
         agregarRadioBotonTipo("General");
 
-        // 🚀 REGLA DE NEGOCIO: Universitarios y Frecuentes no aplican para Domingos/Feriados (Se ocultan)
+        //  REGLA DE NEGOCIO: Universitarios y Frecuentes no aplican para Domingos/Feriados (Se ocultan)
         if (!"FERIADO".equals(regimenDia)) {
             agregarRadioBotonTipo("Universitario");
             agregarRadioBotonTipo("Frecuente");
@@ -176,7 +200,7 @@ public class SaleFragment extends Fragment {
                     if (c instanceof Button) c.setSelected(c == v);
                 }
 
-                // 🚀 REGLA DE NEGOCIO INMUTABLE: En rutas cortas intermedios (Mala-Chilca), universitario está prohibido
+                //  REGLA DE NEGOCIO INMUTABLE: En rutas cortas intermedios (Mala-Chilca), universitario está prohibido
                 rgTipoPasajero.removeAllViews();
                 agregarRadioBotonTipo("General");
                 actualizarPrecio();
@@ -211,7 +235,7 @@ public class SaleFragment extends Fragment {
             return "FERIADO".equals(regimenDia) ? t.precioDomFerCentavos : t.precioCentavos;
         }
 
-        // 🚀 FALLBACK ATÓMICO EN SOFTWARE (Garantiza que la app calcule pasajes bajo cualquier escenario)
+        //  FALLBACK ATÓMICO EN SOFTWARE (Garantiza que la app calcule pasajes bajo cualquier escenario)
         if ("DIRECTO".equals(tipoRuta)) {
             if ("FERIADO".equals(regimenDia)) return 1000; // S/. 10 Tarifa Plana Domingos/Feriados
             if ("Universitario".equals(tipoPasajero)) return 700; // S/. 7
