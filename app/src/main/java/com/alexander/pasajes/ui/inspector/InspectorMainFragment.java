@@ -47,6 +47,8 @@ public class InspectorMainFragment extends Fragment {
     private final ValidationFeedbackProcessor feedbackProcessor = new ValidationFeedbackProcessor();
     private final InspectorLogProcessor logProcessor = new InspectorLogProcessor();
     private final InspectorHistoryProcessor historyProcessor = new InspectorHistoryProcessor();
+    private final QrAuthenticityProcessor authenticityProcessor = new QrAuthenticityProcessor();
+    private final java.util.HashSet<String> hashesEscaneadosEnRevisionActual = new java.util.HashSet<>();
 
     @Nullable
     @Override
@@ -127,11 +129,33 @@ public class InspectorMainFragment extends Fragment {
                 layoutResultado.setVisibility(View.VISIBLE);
 
                 boolean esBoletoEncontradoCloud = (response.isSuccessful() && response.body() != null && response.body().data != null);
+                boolean yaProcesadoEnEstaFila = hashesEscaneadosEnRevisionActual.contains(codigo);
+
+                // 🛡️ INTERCEPTOR ATÓMICO DE AUTENTICIDAD (Mapeo CP119, CP120 y CP121)
+                String dictamenAutenticidad = authenticityProcessor.evaluarAutenticidadQr(esBoletoEncontradoCloud, yaProcesadoEnEstaFila);
+
+                if (QrAuthenticityProcessor.MSG_ERROR_NOT_RECONOCIDO.equals(dictamenAutenticidad)) {
+                    // [CP120]: Bloquea aprobación y emite alerta en rojo completo en pantalla
+                    tvResultado.setText(dictamenAutenticidad.toUpperCase());
+                    tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark));
+                    layoutResultado.setBackgroundColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_light));
+                    tvDetalles.setText("Error crítico: El código escaneado no pertenece al sistema de la empresa.");
+                    Toast.makeText(getContext(), "🔊 Alerta Acústica: QR Desconocido", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                if (QrAuthenticityProcessor.MSG_ERROR_DUPLICADO.equals(dictamenAutenticidad)) {
+                    // [CP121]: Detiene aprobación y lanza alerta de pasaje ya verificado por segunda vez
+                    tvResultado.setText(dictamenAutenticidad.toUpperCase());
+                    tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark));
+                    layoutResultado.setBackgroundColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_light));
+                    tvDetalles.setText("Alerta de duplicado: Este boleto ya fue escaneado por el inspector en este mismo bus.");
+                    return;
+                }
 
                 String estadoBoletoRequest = esBoletoEncontradoCloud ? response.body().data.estadoBoleto : "INEXISTENTE";
                 String estadoTurnoRequest = esBoletoEncontradoCloud ? response.body().data.estadoTurno : "INEXISTENTE";
 
-                // 🛡 ANALIZADOR CRÍTICO CROMÁTICO (Mapeo CP113 y CP114)
                 String dictamenVisual = feedbackProcessor.evaluarFeedbackVisual(esBoletoEncontradoCloud, estadoBoletoRequest, estadoTurnoRequest);
 
                 if (ValidationFeedbackProcessor.MSG_ERROR_NO_RECONOCIDO.equals(dictamenVisual)) {
@@ -158,9 +182,13 @@ public class InspectorMainFragment extends Fragment {
                 if (ValidationFeedbackProcessor.COLOR_VERDE_CONFORME.equals(dictamenVisual)) {
                     // [CP113]: Interfaz cambia a color verde confirmando vigencia del pasaje
                     isBoletoValidoYActivo = true;
+
+                    // 🛡️ [CP119]: Registramos la firma en caliente para prevenir fraudes por duplicación secundaria
+                    hashesEscaneadosEnRevisionActual.add(codigo);
+
                     tvResultado.setText("BOLETO VÁLIDO - JORNADA ACTIVA");
                     tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
-                    layoutResultado.setBackgroundColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_light)); // Cambio de fondo conforme
+                    layoutResultado.setBackgroundColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_light));// Cambio de fondo conforme
 
                     tvDetalles.setText(String.format(
                             "Bus: %s (%s)\nRuta: %s\nOrigen: %s → Destino: %s\nPrecio: S/ %.2f\nPago: %s\nCobrador: %s\nFecha: %s",
