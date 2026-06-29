@@ -52,6 +52,7 @@ public class SaleFragment extends Fragment {
 
     private boolean abrioModuloQrPreviamente = false;
     private final PassengerTypeProcessor passengerProcessor = new PassengerTypeProcessor();
+    private final RouteStopsProcessor routeStopsProcessor = new RouteStopsProcessor();
 
 
     @Nullable
@@ -192,6 +193,17 @@ public class SaleFragment extends Fragment {
             btn.setText(texto);
             btn.setAllCaps(false);
             btn.setOnClickListener(v -> {
+                // 🛡 REGLA OPERACIONAL: Evaluación direccional heurística (Ejemplo: Origen ID mayor a Destino ID implica sentido invertido)
+                boolean esSentidoInvalido = (tramo.origenParaderoId > tramo.destinoParaderoId);
+                boolean esMatrizCorrupta = false; // Flag preventivo de Room
+
+                String dictamenTramos = routeStopsProcessor.evaluarSeleccionTramos(esSentidoInvalido, esMatrizCorrupta);
+
+                if (!RouteStopsProcessor.STATUS_STOPS_OK.equals(dictamenTramos)) {
+                    Toast.makeText(getContext(), dictamenTramos, Toast.LENGTH_LONG).show();
+                    return; // Detiene el cobro y resalta el bloqueo perimetral
+                }
+
                 origenSeleccionado = tramo.origenParaderoId;
                 destinoSeleccionado = tramo.destinoParaderoId;
 
