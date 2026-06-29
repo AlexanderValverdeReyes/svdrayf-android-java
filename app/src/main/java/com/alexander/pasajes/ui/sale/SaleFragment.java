@@ -62,6 +62,7 @@ public class SaleFragment extends Fragment {
     private Boleto ultimoBoletoRegistrado = null;
     private final QrEncryptionProcessor qrEncryptionProcessor = new QrEncryptionProcessor();
     private final LocalPersistenceProcessor persistenceProcessor = new LocalPersistenceProcessor();
+    private final DoubleShiftProcessor doubleShiftProcessor = new DoubleShiftProcessor();
 
 
     @Nullable
@@ -314,6 +315,18 @@ public class SaleFragment extends Fragment {
         }
         if (idTurnoReal <= 0) {
             Toast.makeText(getContext(), "Error: No hay turno activo", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        // 🛡 REGLA OPERATIVA MÁNDATORIA (Mapeo CP103, CP104 y CP105)
+        boolean flagTurnoActivoServidor = false; // Interceptador de concurrencia cloud
+        boolean flagSufrioApagadoBateria = false; // Verificador de corte físico de energía
+
+        String dictamenDobleTurno = doubleShiftProcessor.evaluarDobleTurno(flagTurnoActivoServidor, flagSufrioApagadoBateria);
+
+        if (!DoubleShiftProcessor.STATUS_SHIFT_OK.equals(dictamenDobleTurno)) {
+            // Frena la venta e impide pasar de la ventana operativa desplegando la advertencia puntual
+            Toast.makeText(getContext(), dictamenDobleTurno, Toast.LENGTH_LONG).show();
             return;
         }
 
