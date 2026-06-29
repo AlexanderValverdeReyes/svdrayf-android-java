@@ -26,4 +26,8 @@ public interface BoletoDao {
 
     @Query("UPDATE boletos SET sincronizado = 1 WHERE id = :boletoId")
     void marcarSincronizado(int boletoId);
+
+    //  SOLUCIÓN RFN50: Elimina de la memoria local los boletos ya subidos a Neon DB
+    @Query("DELETE FROM boletos WHERE turnoId = :turnoId AND sincronizado = 1")
+    void clearBoletosSincronizadosTurno(int turnoId);
 }

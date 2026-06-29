@@ -167,6 +167,9 @@ public class AppRepository {
     public void marcarSincronizado(int id) {
         db.boletoDao().marcarSincronizado(id);
     }
+    public void clearBoletosSincronizadosTurno(int turnoId) {
+        db.boletoDao().clearBoletosSincronizadosTurno(turnoId);
+    }
 
     // ===== PARADEROS / TRAMOS =====
     public List<String> getTiposPasajeroPorTramo(int rutaId, int origen, int destino) {

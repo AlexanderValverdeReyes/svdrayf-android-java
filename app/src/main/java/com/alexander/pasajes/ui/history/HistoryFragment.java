@@ -53,6 +53,7 @@ public class HistoryFragment extends Fragment {
     private final SyncStateProcessor syncStateProcessor = new SyncStateProcessor();
     private final DataConflictProcessor conflictProcessor = new DataConflictProcessor();
     private final LocalBackupProcessor backupProcessor = new LocalBackupProcessor();
+    private final CacheCleanupProcessor cacheProcessor = new CacheCleanupProcessor();
 
     public void setTurnoId(int turnoId) {
         this.turnoId = turnoId;
@@ -320,6 +321,30 @@ public class HistoryFragment extends Fragment {
         this.ultimoTurnoLiquidado = turno;
         this.huboFallaPapelCierre = false;
 
+        // 1. Consulta en Room cuántos boletos de este turno quedaron colgados sin subir a Postgres
+        List<Boleto> boletosTurno = repo.getBoletosTurno(turno.id);
+        int pendientesDeSubida = 0;
+        if (boletosTurno != null) {
+            for (Boleto b : boletosTurno) {
+                if (!b.sincronizado) {
+                    pendientesDeSubida++;
+                }
+            }
+        }
+
+        // 2. 🛡️ INTERCEPTOR DE DEPURACIÓN CRÍTICA (Mapeo CP142 y CP143)
+        String dictamenCache = cacheProcessor.evaluarLimpiezaCache(pendientesDeSubida, false);
+
+        if (CacheCleanupProcessor.STATUS_PURGE_OK.equals(dictamenCache)) {
+            // [CP142]: Purgado automático de pasajes antiguos ya respaldados con éxito en Neon DB
+            repo.clearBoletosSincronizadosTurno(turno.id);
+            Toast.makeText(getContext(), "🧹 Base de datos local optimizada y ligera.", Toast.LENGTH_SHORT).show();
+        } else if (CacheCleanupProcessor.STATUS_PROTECT_RECORDS.equals(dictamenCache)) {
+            // [CP143]: Protege y omite el borrado si la señal cayó para evitar pérdidas de recaudación
+            Toast.makeText(getContext(), "⚠️ Registros protegidos: Se detectaron pasajes pendientes de subida.", Toast.LENGTH_LONG).show();
+        }
+
+        // 3. Persistencia del estado inactivo del turno
         turno.activo = false;
         turno.cierre = System.currentTimeMillis();
         repo.cerrarTurno(turno);
