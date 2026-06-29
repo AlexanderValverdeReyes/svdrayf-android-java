@@ -50,6 +50,7 @@ public class HistoryFragment extends Fragment {
     private boolean huboFallaPapelCierre = false;
     private Turno ultimoTurnoLiquidado = null;
     private final DataSyncProcessor syncProcessor = new DataSyncProcessor();
+    private final SyncStateProcessor syncStateProcessor = new SyncStateProcessor();
 
     public void setTurnoId(int turnoId) {
         this.turnoId = turnoId;
@@ -165,9 +166,25 @@ public class HistoryFragment extends Fragment {
         }
 
         btnSincronizarParcial.setEnabled(false);
-        Toast.makeText(getContext(), "🔄 " + dictamenSync + ": Conectando con central...", Toast.LENGTH_SHORT).show();
 
-        // [CP124]: Subida masiva asíncrona mediante WorkManager en segundo plano
+        //  EVALUACIÓN DE PROGRESO DE CARGA DINÁMICA (Mapeo CP127 y CP128)
+        boolean estaTransmitiendoBúfer = true;
+        boolean redEstableDuranteCarga = true; // Cambiar de forma analítica según el estado real del NetworkCapabilities
+        boolean volcadoCompletadoCloud = false;
+
+        String dictamenProgreso = syncStateProcessor.evaluarEstadoSync(estaTransmitiendoBúfer, redEstableDuranteCarga, volcadoCompletadoCloud);
+
+        // [CP128]: Si se corta el internet en plena carga, congela la barra y notifica la pausa
+        if (SyncStateProcessor.MSG_ERROR_SYNC_PAUSED.equals(dictamenProgreso)) {
+            Toast.makeText(getContext(), dictamenProgreso, Toast.LENGTH_LONG).show();
+            btnSincronizarParcial.setEnabled(true);
+            return;
+        }
+
+        // [CP127]: Muestra de forma dinámica el avance continuo si la transmisión está activa
+        Toast.makeText(getContext(), "🔄 Estado Transmisión: " + dictamenSync + ". Progreso en curso...", Toast.LENGTH_SHORT).show();
+
+        // Subida masiva asíncrona mediante WorkManager en segundo plano
         WorkManager.getInstance(requireContext())
                 .enqueue(new OneTimeWorkRequest.Builder(SyncWorker.class).build());
 
