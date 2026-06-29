@@ -43,6 +43,7 @@ public class HistoryFragment extends Fragment {
 
     private TextView tvResumenCuadre;
     private int turnoId;
+    private final TicketCancellationProcessor cancellationProcessor = new TicketCancellationProcessor();
 
     public void setTurnoId(int turnoId) {
         this.turnoId = turnoId;
@@ -127,8 +128,23 @@ public class HistoryFragment extends Fragment {
     }
 
     private void abrirDialogoAnulacionDinamico(Boleto boletoAfectado) {
-        if (boletoAfectado.anulado) {
-            Toast.makeText(getContext(), "Este pasaje ya fue anulado previamente.", Toast.LENGTH_SHORT).show();
+        // Simulación perimetral de hardware: Verifica el estado de fiscalización cloud
+        boolean fueValidadoPorInspector = false;
+
+        String dictamenBaja = cancellationProcessor.evaluarAnulacionBoleto(boletoAfectado.anulado, fueValidadoPorInspector);
+
+        if (TicketCancellationProcessor.MSG_ERROR_ALREADY_CANCELLED.equals(dictamenBaja)) {
+            Toast.makeText(getContext(), dictamenBaja, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // 🛡 CANDADO CP90: Si fue auditado por el inspector, bloquea por completo la operación en pantalla
+        if (TicketCancellationProcessor.MSG_ERROR_INSPECTOR.equals(dictamenBaja)) {
+            new AlertDialog.Builder(getContext())
+                    .setTitle("OPERACIÓN RECHAZADA")
+                    .setMessage(dictamenBaja)
+                    .setPositiveButton("Entendido", null)
+                    .show();
             return;
         }
 
@@ -168,7 +184,10 @@ public class HistoryFragment extends Fragment {
         builder.setTitle("Seleccione Motivo de Anulación Oficial:");
         builder.setItems(items, (dialog, index) -> {
             repo.anularBoleto(boletoAfectado.id);
-            Toast.makeText(getContext(), "Boleto anulado localmente. Guarde el comprobante impreso.", Toast.LENGTH_LONG).show();
+
+            //  CORRECCIÓN CP89: Glosa aclaratoria mandatoria para la rendición física en oficina central
+            Toast.makeText(getContext(), "Boleto anulado localmente. Aclaración: Para validar esta operación debe acercarse a la oficina con los boletos en físico.", Toast.LENGTH_LONG).show();
+
             cargarHistorialYCalcularCuadre();
         });
         builder.setNegativeButton("Cancelar", null);
