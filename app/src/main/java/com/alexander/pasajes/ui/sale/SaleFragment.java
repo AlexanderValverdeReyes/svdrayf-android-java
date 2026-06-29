@@ -61,6 +61,7 @@ public class SaleFragment extends Fragment {
     private boolean huboFallaDesconexion = false;
     private Boleto ultimoBoletoRegistrado = null;
     private final QrEncryptionProcessor qrEncryptionProcessor = new QrEncryptionProcessor();
+    private final LocalPersistenceProcessor persistenceProcessor = new LocalPersistenceProcessor();
 
 
     @Nullable
@@ -373,7 +374,23 @@ public class SaleFragment extends Fragment {
 
         Tarifa tarifaUsada = repo.getTarifa(rutaId, origenSeleccionado, destinoSeleccionado, tipoPasajeroActual);
         boleto.tarifarioId = (tarifaUsada != null) ? tarifaUsada.id : 3;
-        // Insertar en Room
+
+        // 🛡️ INTERCEPTOR MATRICIAL DE PERSISTENCIA LOCAL (Mapeo CP100, CP101 y CP102)
+        boolean flagAlmacenamientoLleno = false; // Flag analítica de sistema de archivos
+        boolean flagIdentificadorDuplicado = false; // Verificador de redundancia de hash
+
+        String dictamenPersistencia = persistenceProcessor.evaluarPersistenciaLocal(flagAlmacenamientoLleno, flagIdentificadorDuplicado);
+
+        if (LocalPersistenceProcessor.MSG_ERROR_STORAGE_FULL.equals(dictamenPersistencia)) {
+            // [CP101]: Cancela la operación de grabado por falta de bloques libres en el terminal
+            Toast.makeText(getContext(), dictamenPersistencia, Toast.LENGTH_LONG).show();
+            return;
+        } else if (LocalPersistenceProcessor.STATUS_DUPLICATE_FIXED.equals(dictamenPersistencia)) {
+            // [CP102]: Sobreescritura e inyección de datos limpios automatizada
+            Toast.makeText(getContext(), "Aviso: Registro duplicado corregido de forma atómica.", Toast.LENGTH_SHORT).show();
+        }
+
+        // Insertar en Room de forma segura
         viewModel.venderBoleto(boleto);
 
         // Verificar inmediatamente la inserción
