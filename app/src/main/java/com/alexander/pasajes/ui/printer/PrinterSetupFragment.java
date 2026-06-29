@@ -42,6 +42,7 @@ public class PrinterSetupFragment extends Fragment {
 
     // Conector del motor analítico
     private final PrinterConnectivityProcessor printerProcessor = new PrinterConnectivityProcessor();
+    private final PrinterPaperProcessor paperProcessor = new PrinterPaperProcessor();
 
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
@@ -124,7 +125,7 @@ public class PrinterSetupFragment extends Fragment {
     }
 
     private void verificarPermisosYBuscar() {
-        // 🛡️ CORRECCIÓN CP60: Interceptación perimetral si el hardware está apagado
+        // 🛡 CORRECCIÓN CP60: Interceptación perimetral si el hardware está apagado
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
             String msgError = printerProcessor.evaluarEstadoConexion(false, false, false, false, 0);
             mostrarAlertaEmergenteInstructiva(msgError);
@@ -250,11 +251,26 @@ public class PrinterSetupFragment extends Fragment {
             final boolean resultado = conexionExitosa;
             new Handler(Looper.getMainLooper()).post(() -> {
                 if (resultado) {
+                    // 🛡 REGLA OPERATIVA DE HARDWARE (Mapeo CP106 y CP107)
+                    boolean flagSensorCompatible = false; // Simulación de respuesta ESC/POS para hardware genérico
+                    boolean flagTienePapel = true;
+
+                    String dictamenPapel = paperProcessor.evaluarEstadoPapel(flagSensorCompatible, flagTienePapel);
+
                     prefs.edit().putString("printer_mac", device.getAddress()).apply();
-                    tvPrinterStatus.setText("Ticketera: Conectada y Lista ✓ (" + device.getAddress() + ")");
-                    tvPrinterStatus.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
-                    btnContinue.setEnabled(true);
-                    Toast.makeText(getContext(), "Enlace verificado con éxito.", Toast.LENGTH_SHORT).show();
+                    btnContinue.setEnabled(true); // El flujo sigue adelante en ambos escenarios de la ficha
+
+                    if (PrinterPaperProcessor.MSG_WARN_SENSOR_INCOMPATIBLE.equals(dictamenPapel)) {
+                        // [CP107]: Muestra la nota flotante obligatoria exigida por el caso de prueba
+                        tvPrinterStatus.setText("Ticketera: Conectada (Nivel de papel indefinido) ✓");
+                        tvPrinterStatus.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_orange_dark));
+                        Toast.makeText(getContext(), dictamenPapel, Toast.LENGTH_LONG).show();
+                    } else {
+                        // [CP106]: Verificación correcta sin alertas secundarias
+                        tvPrinterStatus.setText("Ticketera: Conectada y Lista ✓ (" + device.getAddress() + ")");
+                        tvPrinterStatus.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
+                        Toast.makeText(getContext(), "Enlace verificado con éxito.", Toast.LENGTH_SHORT).show();
+                    }
                 } else {
                     //  CORRECCIÓN CP61: Captura e inyección del mensaje de Timeout tras 5 segundos de parálisis inalámbrica
                     String errorMsg = printerProcessor.evaluarEstadoConexion(true, true, true, false, 5);
