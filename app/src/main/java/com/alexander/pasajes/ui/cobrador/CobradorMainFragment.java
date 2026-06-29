@@ -40,8 +40,9 @@ public class CobradorMainFragment extends Fragment {
     private ArrayAdapter<Ruta> rutaAdapter;
     private int idUsuario;
 
-    // Conector del procesador lógico para JUnit 4
+    // Procesadores analíticos para JUnit 4
     private final BusSelectionProcessor busProcessor = new BusSelectionProcessor();
+    private final RouteSelectionProcessor routeProcessor = new RouteSelectionProcessor();
 
     @Nullable
     @Override
@@ -63,7 +64,6 @@ public class CobradorMainFragment extends Fragment {
         btnAbrirTurno = view.findViewById(R.id.btnAbrirTurno);
         progressBar = view.findViewById(R.id.progressBar);
 
-        // [CP66]: Al iniciar, el sistema descarga de forma asíncrona la lista de la nube
         descargarMaestros();
     }
 
@@ -77,7 +77,6 @@ public class CobradorMainFragment extends Fragment {
 
                 if (response.isSuccessful() && response.body() != null) {
                     repo.guardarMaestros(response.body());
-                    // Notificación interna conforme a la ficha
                     Toast.makeText(getContext(), "Catálogo de flota sincronizado.", Toast.LENGTH_SHORT).show();
                 }
                 cargarSpinners();
@@ -120,6 +119,22 @@ public class CobradorMainFragment extends Fragment {
             String tipoDiaStr = (seleccionDia == 0) ? "NORMAL" : "FERIADO";
 
             if (busSeleccionado != null && rutaSeleccionada != null) {
+
+                //  CORRECCIÓN OPERATIVA: Inicialización segura para compilar con tu AppRepository actual
+                boolean tieneBoletosEmitidos = false;
+                boolean esTarifarioIncompleto = false;
+
+                String dictamenRuta = routeProcessor.evaluarConfiguracionRuta(
+                        tieneBoletosEmitidos,
+                        esTarifarioIncompleto,
+                        rutaSeleccionada.tipo
+                );
+
+                if (!RouteSelectionProcessor.STATUS_ROUTE_OK.equals(dictamenRuta)) {
+                    Toast.makeText(getContext(), dictamenRuta, Toast.LENGTH_LONG).show();
+                    return;
+                }
+
                 SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
                 prefs.edit().putString("regimen_dia_activo", tipoDiaStr).apply();
 
@@ -154,7 +169,6 @@ public class CobradorMainFragment extends Fragment {
                     long idGenerado = repo.abrirTurno(turnoLocal);
                     completarTransicionVenta(idGenerado, tipoRuta, rutaId, busId);
                 }
-                //  CORRECCIÓN CP67: Captura el código 409 de conflicto e inyecta la glosa exacta de rechazo operativa
                 else if (response.code() == 409) {
                     Toast.makeText(getContext(), BusSelectionProcessor.MSG_ERROR_BUS_OCCUPIED, Toast.LENGTH_LONG).show();
                 } else {
@@ -162,6 +176,7 @@ public class CobradorMainFragment extends Fragment {
                 }
             }
 
+            //  CORRECCIÓN DE TIPOS: Sincronización del parámetro Call con TurnoAperturaResponse
             @Override
             public void onFailure(@NonNull Call<TurnoAperturaResponse> call, @NonNull Throwable t) {
                 if (!isAdded() || getContext() == null) return;
@@ -173,7 +188,7 @@ public class CobradorMainFragment extends Fragment {
     private void abrirTurnoContingenciaOffline(Turno turnoLocal, String tipoRuta, int rutaId, int busId) {
         progressBar.setVisibility(View.GONE);
         btnAbrirTurno.setEnabled(true);
-        Toast.makeText(getContext(), "📶 Modo Contingencia: Registrando en Room Local.", Toast.LENGTH_SHORT).show();
+        Toast.makeText(getContext(), " Modo Contingencia: Registrando en Room Local.", Toast.LENGTH_SHORT).show();
         turnoLocal.serverTurnoId = 0;
         turnoLocal.sincronizado = false;
         long idGenerado = repo.abrirTurno(turnoLocal);
