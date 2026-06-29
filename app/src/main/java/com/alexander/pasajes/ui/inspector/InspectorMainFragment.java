@@ -44,6 +44,7 @@ public class InspectorMainFragment extends Fragment {
 
     //  Conector perimetral para el análisis del escáner de hardware (Solución RFN36)
     private final QrScannerProcessor qrProcessor = new QrScannerProcessor();
+    private final ValidationFeedbackProcessor feedbackProcessor = new ValidationFeedbackProcessor();
 
     @Nullable
     @Override
@@ -123,44 +124,64 @@ public class InspectorMainFragment extends Fragment {
                 btnValidar.setEnabled(true);
                 layoutResultado.setVisibility(View.VISIBLE);
 
-                if (response.isSuccessful() && response.body() != null && response.body().data != null) {
-                    BuscarBoletoResponse.BoletoEncontrado b = response.body().data;
-                    ultimoIdBoleto = b.idBoleto;
-                    ultimoHash = codigo;
-                    ultimoIdTurno = b.idTurno;
+                boolean esBoletoEncontradoCloud = (response.isSuccessful() && response.body() != null && response.body().data != null);
+
+                String estadoBoletoRequest = esBoletoEncontradoCloud ? response.body().data.estadoBoleto : "INEXISTENTE";
+                String estadoTurnoRequest = esBoletoEncontradoCloud ? response.body().data.estadoTurno : "INEXISTENTE";
+
+                // 🛡 ANALIZADOR CRÍTICO CROMÁTICO (Mapeo CP113 y CP114)
+                String dictamenVisual = feedbackProcessor.evaluarFeedbackVisual(esBoletoEncontradoCloud, estadoBoletoRequest, estadoTurnoRequest);
+
+                if (ValidationFeedbackProcessor.MSG_ERROR_NO_RECONOCIDO.equals(dictamenVisual)) {
+                    // [CP114]: Bloquea aprobación, tiñe de rojo absoluto y emite el sonido de alerta (ToneGenerator)
+                    tvResultado.setText(dictamenVisual.toUpperCase());
+                    tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark));
+                    tvDetalles.setText("Código no encontrado en la central de auditoría. Registro inválido.");
+
+                    // Aquí gatillarás tu bip de audio en la UI: android.media.ToneGenerator
+                    Toast.makeText(getContext(), "🔊 Alerta Acústica: Código desconocido.", Toast.LENGTH_SHORT).show();
+
+                    ultimoIdBoleto = null;
+                    ultimoHash = null;
+                    ultimoIdTurno = 0;
+                    return;
+                }
+
+                // Si pasa el filtro, procesamos los mapeos posicionales de la UI
+                BuscarBoletoResponse.BoletoEncontrado b = response.body().data;
+                ultimoIdBoleto = b.idBoleto;
+                ultimoHash = codigo;
+                ultimoIdTurno = b.idTurno;
+
+                if (ValidationFeedbackProcessor.COLOR_VERDE_CONFORME.equals(dictamenVisual)) {
+                    // [CP113]: Interfaz cambia a color verde confirmando vigencia del pasaje
+                    isBoletoValidoYActivo = true;
+                    tvResultado.setText("BOLETO VÁLIDO - JORNADA ACTIVA");
+                    tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
+                    layoutResultado.setBackgroundColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_light)); // Cambio de fondo conforme
+
+                    tvDetalles.setText(String.format(
+                            "Bus: %s (%s)\nRuta: %s\nOrigen: %s → Destino: %s\nPrecio: S/ %.2f\nPago: %s\nCobrador: %s\nFecha: %s",
+                            b.placa, b.numeroPadron, b.ruta, b.origen, b.destino,
+                            b.montoPagadoCentavos / 100.0, b.modalidadPago, b.cobrador, b.fechaEmision
+                    ));
+                    seleccionarSpinnerPorValor("NORMAL");
+
+                } else {
+                    // Cierre preventivo en rojo/naranja ante estados de conflicto (Anulados o pasados)
+                    layoutResultado.setBackgroundColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_light));
 
                     if ("CERRADO".equals(b.estadoTurno)) {
                         tvResultado.setText("BOLETO INVÁLIDO: TURNO CERRADO");
                         tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark));
                         tvDetalles.setText("Intento de fraude: Este boleto pertenece a una ruta del pasado que ya fue cerrada.");
                         seleccionarSpinnerPorValor("EVASION_PASAJE");
-
-                    } else if ("ANULADO".equals(b.estadoBoleto)) {
+                    } else {
                         tvResultado.setText("ALERTA: BOLETO ANULADO");
                         tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_orange_dark));
                         tvDetalles.setText("Alerta contable: El cobrador anuló este pasaje en su app, pero el usuario lo tiene en mano.");
                         seleccionarSpinnerPorValor("ANULACION_INDEBIDA");
-
-                    } else if ("VALIDO".equals(b.estadoBoleto) && "ABIERTO".equals(b.estadoTurno)) {
-                        isBoletoValidoYActivo = true;
-                        tvResultado.setText("BOLETO VÁLIDO - JORNADA ACTIVA");
-                        tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
-
-                        tvDetalles.setText(String.format(
-                                "Bus: %s (%s)\nRuta: %s\nOrigen: %s → Destino: %s\nPrecio: S/ %.2f\nPago: %s\nCobrador: %s\nFecha: %s",
-                                b.placa, b.numeroPadron, b.ruta, b.origen, b.destino,
-                                b.montoPagadoCentavos / 100.0, b.modalidadPago,
-                                b.cobrador, b.fechaEmision
-                        ));
-                        seleccionarSpinnerPorValor("NORMAL");
                     }
-                } else {
-                    tvResultado.setText("BOLETO INEXISTENTE");
-                    tvResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark));
-                    tvDetalles.setText("Código no encontrado en la central de auditoría.");
-                    ultimoIdBoleto = null;
-                    ultimoHash = null;
-                    ultimoIdTurno = 0;
                 }
             }
 
