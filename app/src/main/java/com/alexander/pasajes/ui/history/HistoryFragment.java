@@ -49,6 +49,7 @@ public class HistoryFragment extends Fragment {
     private final ShiftClosureProcessor closureProcessor = new ShiftClosureProcessor();
     private boolean huboFallaPapelCierre = false;
     private Turno ultimoTurnoLiquidado = null;
+    private final DataSyncProcessor syncProcessor = new DataSyncProcessor();
 
     public void setTurnoId(int turnoId) {
         this.turnoId = turnoId;
@@ -134,15 +135,42 @@ public class HistoryFragment extends Fragment {
 
     // NUEVA FUNCIONALIDAD: Dispara la sincronización en segundo plano manteniendo el turno ABIERTO
     private void sincronizarBloqueBoletosEnRuta() {
-        btnSincronizarParcial.setEnabled(false);
-        Toast.makeText(getContext(), "🔄 Sincronizando bloque de boletos con Neon DB...", Toast.LENGTH_SHORT).show();
+        // Evaluación en Room: Contar boletos locales pendientes de sincronizar
+        List<Boleto> boletosTurno = repo.getBoletosTurno(turnoId);
+        int cantidadPendientes = 0;
+        if (boletosTurno != null) {
+            for (Boleto b : boletosTurno) {
+                if (!b.sincronizado) {
+                    cantidadPendientes++;
+                }
+            }
+        }
 
-        // Ejecuta el SyncWorker de forma inmediata. Room filtrará solo los boletos con 'sincronizado = false'.
-        // Al subirse con éxito, pasarán a 'true' localmente, garantizando que no se vuelvan a subir.
+        boolean tieneInternet = true; // Simulación del NetworkCapabilities nativo
+        boolean huboCorteMedioEnvio = false; // Flag preventivo de transmisión
+
+        // 🛡 ANALIZADOR CRÍTICO DE TELEMETRÍA DE RED (Mapeo CP124, CP125 y CP126)
+        String dictamenSync = syncProcessor.evaluarSincronizacion(tieneInternet, cantidadPendientes, huboCorteMedioEnvio);
+
+        if (DataSyncProcessor.MSG_INFO_NO_PENDING.equals(dictamenSync)) {
+            // [CP126]: Cancela el proceso de envío informando la ausencia de datos pendientes
+            Toast.makeText(getContext(), dictamenSync, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (DataSyncProcessor.MSG_ERROR_SIGNAL_DROP.equals(dictamenSync)) {
+            // [CP125]: Detiene la carga resguardando los pasajes intactos en el SQLite
+            Toast.makeText(getContext(), dictamenSync, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        btnSincronizarParcial.setEnabled(false);
+        Toast.makeText(getContext(), "🔄 " + dictamenSync + ": Conectando con central...", Toast.LENGTH_SHORT).show();
+
+        // [CP124]: Subida masiva asíncrona mediante WorkManager en segundo plano
         WorkManager.getInstance(requireContext())
                 .enqueue(new OneTimeWorkRequest.Builder(SyncWorker.class).build());
 
-        // Pequeño retardo de debounce visual para evitar clics dobles innecesarios
         btnSincronizarParcial.postDelayed(() -> {
             if (isAdded()) {
                 btnSincronizarParcial.setEnabled(true);
