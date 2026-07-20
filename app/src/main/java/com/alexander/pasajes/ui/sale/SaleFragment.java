@@ -30,7 +30,9 @@ import com.dantsu.escposprinter.connection.bluetooth.BluetoothConnection;
 import java.util.List;
 import java.util.Locale;
 import com.alexander.pasajes.data.entity.Turno;
-
+// Importamos tu procesador y el nuevo mánager periódico
+import com.alexander.pasajes.ui.printer.PrinterBatteryProcessor;
+import com.alexander.pasajes.ui.printer.PrinterBatteryManager;
 
 public class SaleFragment extends Fragment {
 
@@ -55,7 +57,7 @@ public class SaleFragment extends Fragment {
     private final RouteStopsProcessor routeStopsProcessor = new RouteStopsProcessor();
     private final DigitalPaymentProcessor digitalPaymentProcessor = new DigitalPaymentProcessor();
     private final AuditAlertProcessor auditProcessor = new AuditAlertProcessor();
-    private int contadorCambiosMetodo = 0; // Telemetría de pulsaciones en pasillo
+    private int contadorCambiosMetodo = 0;
     private final TicketPrintProcessor ticketPrintProcessor = new TicketPrintProcessor();
     private boolean huboFallaMecanicaPapel = false;
     private boolean huboFallaDesconexion = false;
@@ -65,6 +67,8 @@ public class SaleFragment extends Fragment {
     private final DoubleShiftProcessor doubleShiftProcessor = new DoubleShiftProcessor();
     private final VisualConfirmationProcessor visualConfirmationProcessor = new VisualConfirmationProcessor();
 
+    // ADICIÓN: Instancia del mánager de telemetría cíclica
+    private PrinterBatteryManager batteryManager;
 
     @Nullable
     @Override
@@ -100,16 +104,38 @@ public class SaleFragment extends Fragment {
         btnVender = view.findViewById(R.id.btnVender);
         layoutTramos = view.findViewById(R.id.layoutTramos);
 
+        // CONFIGURACIÓN: Vinculamos el hilo periódico de la batería a los componentes gráficos (CP62, CP63 y CP64)
+        batteryManager = new PrinterBatteryManager((dictamen, porcentaje, permitirOperacion) -> {
+            if (!isAdded() || getContext() == null) return;
+
+            requireActivity().runOnUiThread(() -> {
+                if (PrinterBatteryProcessor.STATUS_TELEMETRY_OK.equals(dictamen)) {
+                    tvEstadoImpresora.setText(String.format(Locale.getDefault(), "Ticketera: En Línea ✓ (%d%%)", porcentaje));
+                    tvEstadoImpresora.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
+                    btnVender.setEnabled(true); // Desbloqueo lícito
+                } else {
+                    // Cambia el estado superior a advertencia o error según corresponda
+                    tvEstadoImpresora.setText(String.format(Locale.getDefault(), "Ticketera: Alerta (%d%%)", porcentaje));
+                    tvEstadoImpresora.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark));
+
+                    // Candado de Seguridad Contable: Frena de raíz la impresión de comprobantes borrosos o ilegibles
+                    btnVender.setEnabled(false);
+
+                    // Despliegue mandatorio de glosas estrictas evaluadas por el procesador analítico
+                    Toast.makeText(getContext(), dictamen, Toast.LENGTH_LONG).show();
+                }
+            });
+        });
+
         if (busId > 0) {
             Bus bus = repo.getBus(busId);
             if (bus != null) tvBusInfo.setText(String.format("Unidad: %s", bus.placa));
         }
 
-        //  CONTROL MATRICIAL DE MODALIDADES DE VIAJE CONECTADO A POSTGRESQL
         if ("DIRECTO".equals(tipoRuta)) {
             layoutTramos.setVisibility(View.GONE);
-            origenSeleccionado = 1;  //  CORREGIDO: Paradero Mala es ID 1 en tu Neon DB
-            destinoSeleccionado = 2; // CORREGIDO: Paradero Lima es ID 2 en tu Neon DB
+            origenSeleccionado = 1;
+            destinoSeleccionado = 2;
             inyectarPasajesDirectos();
         } else {
             layoutTramos.setVisibility(View.VISIBLE);
@@ -120,7 +146,6 @@ public class SaleFragment extends Fragment {
             contadorCambiosMetodo++;
             String metodoSeleccionado = (checkedId == R.id.rbQR) ? "QR" : "EFECTIVO";
 
-            // Simulación perimetral de hardware: verificar si el recurso existe localmente (CP83)
             boolean archivoQrExiste = true;
             boolean esAlternanciaUltimoMomento = ("EFECTIVO".equals(metodoSeleccionado) && abrioModuloQrPreviamente);
 
@@ -140,9 +165,7 @@ public class SaleFragment extends Fragment {
                 ivQR.setVisibility(View.GONE);
                 if (DigitalPaymentProcessor.STATUS_CASH_CONMUTED.equals(dictamenPago)) {
                     // Mapeo contable CP82: Persistir la bandera obligatoria exigida por el Excel
-                    SharedPreferences.Editor editor = prefs.edit();
-                    editor.putBoolean("huboIntentoQR", true);
-                    editor.apply();
+                    prefs.edit().putBoolean("huboIntentoQR", true).apply();
                     Toast.makeText(getContext(), "Alternancia registrada en auditoría local.", Toast.LENGTH_SHORT).show();
                 }
             }
@@ -154,7 +177,6 @@ public class SaleFragment extends Fragment {
                 if (rb != null) {
                     String tagPasajero = (String) rb.getTag();
 
-                    // 🛡 INTERCEPTOR DE SEGURIDAD OPERATIVA (Mapeo CP76 y CP77)
                     String dictamen = passengerProcessor.evaluarSeleccionPasajero(
                             origenSeleccionado,
                             destinoSeleccionado,
@@ -163,7 +185,6 @@ public class SaleFragment extends Fragment {
                     );
 
                     if (PassengerTypeProcessor.MSG_ERROR_MISSING_STOPS.equals(dictamen)) {
-                        // Despliega la notificación flotante y cancela el cálculo del costo
                         Toast.makeText(getContext(), dictamen, Toast.LENGTH_LONG).show();
                         tipoPasajeroActual = null;
                         tvPrecio.setText("Tarifa: No indexada");
@@ -171,7 +192,6 @@ public class SaleFragment extends Fragment {
                     }
 
                     if (PassengerTypeProcessor.MSG_WARN_UNIVERISTARIO_HOLIDAY.equals(dictamen)) {
-                        // Lanza la advertencia preventiva flotante sin interrumpir el flujo lícito
                         Toast.makeText(getContext(), dictamen, Toast.LENGTH_LONG).show();
                     }
 
@@ -194,10 +214,7 @@ public class SaleFragment extends Fragment {
 
     private void inyectarPasajesDirectos() {
         rgTipoPasajero.removeAllViews();
-        //  CORREGIDO: Nombres de categorías homologados al 100% con tu base de datos
         agregarRadioBotonTipo("General");
-
-        //  REGLA DE NEGOCIO: Universitarios y Frecuentes no aplican para Domingos/Feriados (Se ocultan)
         if (!"FERIADO".equals(regimenDia)) {
             agregarRadioBotonTipo("Universitario");
             agregarRadioBotonTipo("Frecuente");
@@ -226,30 +243,75 @@ public class SaleFragment extends Fragment {
             Button btn = new Button(getContext());
             btn.setText(texto);
             btn.setAllCaps(false);
+            btn.setBackgroundResource(R.drawable.selector_tramo_button);
+            btn.setTextColor(ContextCompat.getColorStateList(requireContext(), R.color.selector_texto_boton));
             btn.setOnClickListener(v -> {
-                // 🛡 REGLA OPERACIONAL: Evaluación direccional heurística (Ejemplo: Origen ID mayor a Destino ID implica sentido invertido)
-                boolean esSentidoInvalido = (tramo.origenParaderoId > tramo.destinoParaderoId);
-                boolean esMatrizCorrupta = false; // Flag preventivo de Room
+                // Forzamos false para anular restricciones direccionales rígidas y habilitar la bidireccionalidad
+                boolean esSentidoInvalido = false;
+                boolean esMatrizCorrupta = false;
 
                 String dictamenTramos = routeStopsProcessor.evaluarSeleccionTramos(esSentidoInvalido, esMatrizCorrupta);
 
                 if (!RouteStopsProcessor.STATUS_STOPS_OK.equals(dictamenTramos)) {
                     Toast.makeText(getContext(), dictamenTramos, Toast.LENGTH_LONG).show();
-                    return; // Detiene el cobro y resalta el bloqueo perimetral
+                    return;
                 }
 
                 origenSeleccionado = tramo.origenParaderoId;
                 destinoSeleccionado = tramo.destinoParaderoId;
 
+                // 🟢 CORRECCIÓN: Bucle analítico para sombrear y colorear visualmente el botón seleccionado en la interfaz
                 for (int i = 0; i < layoutTramos.getChildCount(); i++) {
-                    View c = layoutTramos.getChildAt(i);
-                    if (c instanceof Button) c.setSelected(c == v);
+                    View componenteFila = layoutTramos.getChildAt(i);
+                    if (componenteFila instanceof Button) {
+                        boolean esElBotonPulsado = (componenteFila == v);
+                        componenteFila.setSelected(esElBotonPulsado); // Activa el selector de fondo/color
+
+                        // Enfoque adaptativo de contraste UI: Cambia tipografía para resaltar el tramo activo
+                        if (esElBotonPulsado) {
+                            ((Button) componenteFila).setTypeface(null, Typeface.BOLD);
+                        } else {
+                            ((Button) componenteFila).setTypeface(null, Typeface.NORMAL);
+                        }
+                    }
                 }
 
-                //  REGLA DE NEGOCIO INMUTABLE: En rutas cortas intermedios (Mala-Chilca), universitario está prohibido
                 rgTipoPasajero.removeAllViews();
-                agregarRadioBotonTipo("General");
-                actualizarPrecio();
+
+                // Validación estricta de tramo extremo/jornada completa (Mala-Lima o Lima-Mala)
+                boolean esRutaCompletaPrincipal = (origenSeleccionado == 1 && destinoSeleccionado == 2) ||
+                        (origenSeleccionado == 2 && destinoSeleccionado == 1);
+
+                if (esRutaCompletaPrincipal) {
+                    // Inyección mandatoria de variaciones según el Excel
+                    agregarRadioBotonTipo("General");
+                    if (!"FERIADO".equals(regimenDia)) {
+                        agregarRadioBotonTipo("Universitario");
+                        agregarRadioBotonTipo("Frecuente");
+                    }
+                } else {
+                    // Tramos intermedios: Consumo de la traza de categorías indexadas en Room
+                    List<String> tiposDisponibles = repo.getTiposPasajeroPorTramo(rutaId, origenSeleccionado, destinoSeleccionado);
+
+                    // Intento de cruce inverso simétrico por contingencia relacional
+                    if (tiposDisponibles == null || tiposDisponibles.isEmpty()) {
+                        tiposDisponibles = repo.getTiposPasajeroPorTramo(rutaId, destinoSeleccionado, origenSeleccionado);
+                    }
+
+                    if (tiposDisponibles != null && !tiposDisponibles.isEmpty()) {
+                        for (String tipo : tiposDisponibles) {
+                            if ("FERIADO".equals(regimenDia) && ("Universitario".equalsIgnoreCase(tipo) || "Frecuente".equalsIgnoreCase(tipo))) {
+                                continue;
+                            }
+                            agregarRadioBotonTipo(tipo);
+                        }
+                    } else {
+                        agregarRadioBotonTipo("General");
+                    }
+                }
+
+                tipoPasajeroActual = null;
+                tvPrecio.setText("Tarifa: Seleccione Pasajero");
             });
             layoutTramos.addView(btn);
         }
@@ -275,21 +337,50 @@ public class SaleFragment extends Fragment {
     }
 
     private int obtenerPrecioFinal(String tipoPasajero) {
-        Tarifa t = repo.getTarifa(rutaId, origenSeleccionado, destinoSeleccionado, tipoPasajero);
-        if (t != null) {
-            // Retorna el campo correcto mapeado desde Neon DB según el spinner de la jornada
-            return "FERIADO".equals(regimenDia) ? t.precioDomFerCentavos : t.precioCentavos;
+        if (tipoPasajero == null) return 0;
+
+        // 1. Array de variaciones para romper la sensibilidad a mayúsculas/minúsculas de SQLite
+        String[] variacionesTexto = {
+                tipoPasajero,
+                tipoPasajero.toUpperCase(),
+                tipoPasajero.toLowerCase()
+        };
+
+        // 2. Matriz de paraderos candidatos (Prueba el orden seleccionado, el inverso y los IDs base 1 y 2 de Mala-Lima)
+        int[][] paresParaderos = {
+                {origenSeleccionado, destinoSeleccionado},
+                {destinoSeleccionado, origenSeleccionado},
+                {1, 2}, // Extremo Mala (1) -> Lima (2)
+                {2, 1}, // Extremo Lima (2) -> Mala (1)
+                {0, 0}  // Fallback por si el panel administrativo registró la tarifa sin paraderos fijos
+        };
+
+        // 3. Búsqueda exhaustiva en el tarifario real traído desde el Backend
+        for (int[] par : paresParaderos) {
+            int orig = par[0];
+            int dest = par[1];
+            if (orig == -1 || dest == -1) continue;
+
+            for (String var : variacionesTexto) {
+                Tarifa t = repo.getTarifa(rutaId, orig, dest, var);
+                if (t != null) {
+                    int precioIndexado = "FERIADO".equals(regimenDia) ? t.precioDomFerCentavos : t.precioCentavos;
+                    if (precioIndexado > 0) {
+                        return precioIndexado; // ➔ Retorna el precio real de la base de datos de Neon
+                    }
+                }
+            }
         }
 
-        //  FALLBACK ATÓMICO EN SOFTWARE (Garantiza que la app calcule pasajes bajo cualquier escenario)
-        if ("DIRECTO".equals(tipoRuta)) {
-            if ("FERIADO".equals(regimenDia)) return 1000; // S/. 10 Tarifa Plana Domingos/Feriados
-            if ("Universitario".equals(tipoPasajero)) return 700; // S/. 7
-            if ("Frecuente".equals(tipoPasajero)) return 800; // S/. 8
-            return 900; // General S/. 9
+        // 4. 🛡️ ESCUDO OPERATIVO DE CONTINGENCIA CORPORATIVA
+        // Si la sincronización local falló o las tablas de Room están vacías, aplicamos
+        // estrictamente la escala de precios oficiales para proteger la recaudación del turno:
+        if ("Universitario".equalsIgnoreCase(tipoPasajero)) {
+            return 700;  // S/. 7.00 exactos en centavos
+        } else if ("Frecuente".equalsIgnoreCase(tipoPasajero)) {
+            return 800;  // S/. 8.00 exactos en centavos
         } else {
-            // Tramo Corto Intermedio (Mala - Chilca)
-            return "FERIADO".equals(regimenDia) ? 600 : 400; // S/. 6 Feriado o S/. 4 Semana
+            return "FERIADO".equals(regimenDia) ? 1000 : 900; // S/. 9.00 General (S/. 10.00 Feriados)
         }
     }
 
@@ -308,7 +399,6 @@ public class SaleFragment extends Fragment {
         final Bus bus = repo.getBus(busId);
         if (bus == null) return;
 
-        // Garantizar un turnoId válido
         int idTurnoReal = (int) turnoId;
         if (idTurnoReal <= 0) {
             Turno activo = repo.getTurnoActivo();
@@ -319,19 +409,16 @@ public class SaleFragment extends Fragment {
             return;
         }
 
-        // 🛡 REGLA OPERATIVA MÁNDATORIA (Mapeo CP103, CP104 y CP105)
-        boolean flagTurnoActivoServidor = false; // Interceptador de concurrencia cloud
-        boolean flagSufrioApagadoBateria = false; // Verificador de corte físico de energía
+        boolean flagTurnoActivoServidor = false;
+        boolean flagSufrioApagadoBateria = false;
 
         String dictamenDobleTurno = doubleShiftProcessor.evaluarDobleTurno(flagTurnoActivoServidor, flagSufrioApagadoBateria);
 
         if (!DoubleShiftProcessor.STATUS_SHIFT_OK.equals(dictamenDobleTurno)) {
-            // Frena la venta e impide pasar de la ventana operativa desplegando la advertencia puntual
             Toast.makeText(getContext(), dictamenDobleTurno, Toast.LENGTH_LONG).show();
             return;
         }
 
-        //  ANÁLISIS DE COMPORTAMIENTO SILENCIOSO (Mapeo CP84 y CP85)
         String dictamenAuditoria = auditProcessor.evaluarAlertaAuditoria(
                 abrioModuloQrPreviamente,
                 metodoPago,
@@ -342,8 +429,6 @@ public class SaleFragment extends Fragment {
 
         final Boleto boleto = new Boleto();
 
-        // NOTA DE ARQUITECTURA: Guardamos las flags en SharedPreferences preventivas para el Sync
-        // o directamente en tu entidad Room si posees las columnas de telemetría local de Postgres
         requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit()
                 .putBoolean("alerta_auditoria_qr_actual", dispararAlertaOculta)
                 .putBoolean("hubo_intento_qr_actual", abrioModuloQrPreviamente)
@@ -362,12 +447,10 @@ public class SaleFragment extends Fragment {
         boleto.destino = "DIRECTO".equals(tipoRuta) ? "Lima" : repo.getParaderoById(destinoSeleccionado).nombre;
         boleto.rutaNombre = tipoRuta;
 
-        // Generación del token criptográfico base
         boleto.hash = HashUtils.generarToken(bus.placa, boleto.fechaHora, tipoPasajeroActual, precioCentavos, metodoPago);
 
-        // ️ INTERCEPTOR MÁQUINA DE ESTADOS QR (Mapeo CP97, CP98 y CP99)
         boolean forzarFallaDatosCorruptos = (boleto.hash == null || bus.placa.isEmpty());
-        boolean simularFallaRamDeGráficos = false; // Flag preventiva de memoria
+        boolean simularFallaRamDeGráficos = false;
 
         String dictamenQr = qrEncryptionProcessor.evaluarGeneracionQr(
                 boleto.hash,
@@ -378,36 +461,33 @@ public class SaleFragment extends Fragment {
         );
 
         if (QrEncryptionProcessor.MSG_ERROR_CORRUPT.equals(dictamenQr)) {
-            // [CP98]: Cancela de inmediato el proceso de preventa y limpia la cola local
             Toast.makeText(getContext(), dictamenQr, Toast.LENGTH_LONG).show();
             return;
         } else if (QrEncryptionProcessor.STATUS_MEMORY_RECOVERED.equals(dictamenQr)) {
-            // [CP99]: Notifica la recuperación automática de RAM en milisegundos
             Toast.makeText(getContext(), "Módulo de gráficos reiniciado con éxito.", Toast.LENGTH_SHORT).show();
         }
 
+        // 🟢 CORRECCIÓN: Búsqueda simétrica/inversa del tarifario para asociar el id_tarifario oficial al boleto en ambos sentidos
         Tarifa tarifaUsada = repo.getTarifa(rutaId, origenSeleccionado, destinoSeleccionado, tipoPasajeroActual);
+        if (tarifaUsada == null) {
+            tarifaUsada = repo.getTarifa(rutaId, destinoSeleccionado, origenSeleccionado, tipoPasajeroActual);
+        }
         boleto.tarifarioId = (tarifaUsada != null) ? tarifaUsada.id : 3;
 
-        // 🛡️ INTERCEPTOR MATRICIAL DE PERSISTENCIA LOCAL (Mapeo CP100, CP101 y CP102)
-        boolean flagAlmacenamientoLleno = false; // Flag analítica de sistema de archivos
-        boolean flagIdentificadorDuplicado = false; // Verificador de redundancia de hash
+        boolean flagAlmacenamientoLleno = false;
+        boolean flagIdentificadorDuplicado = false;
 
         String dictamenPersistencia = persistenceProcessor.evaluarPersistenciaLocal(flagAlmacenamientoLleno, flagIdentificadorDuplicado);
 
         if (LocalPersistenceProcessor.MSG_ERROR_STORAGE_FULL.equals(dictamenPersistencia)) {
-            // [CP101]: Cancela la operación de grabado por falta de bloques libres en el terminal
             Toast.makeText(getContext(), dictamenPersistencia, Toast.LENGTH_LONG).show();
             return;
         } else if (LocalPersistenceProcessor.STATUS_DUPLICATE_FIXED.equals(dictamenPersistencia)) {
-            // [CP102]: Sobreescritura e inyección de datos limpios automatizada
             Toast.makeText(getContext(), "Aviso: Registro duplicado corregido de forma atómica.", Toast.LENGTH_SHORT).show();
         }
 
-        // Insertar en Room de forma segura
         viewModel.venderBoleto(boleto);
 
-        // Verificar inmediatamente la inserción
         List<Boleto> boletosTurno = repo.getBoletosTurno(idTurnoReal);
         boolean guardado = false;
         for (Boleto b : boletosTurno) {
@@ -420,7 +500,6 @@ public class SaleFragment extends Fragment {
         String dictamenVisual = visualConfirmationProcessor.evaluarConfirmacionVisual(guardado);
 
         if (VisualConfirmationProcessor.STATUS_CONFIRMED.equals(dictamenVisual)) {
-            // Despliega en la pantalla del celular el mensaje verde confirmando el guardado local
             Toast.makeText(getContext(), "✅ Boleto guardado en Room", Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(getContext(), "❌ Error: No se guardó el boleto", Toast.LENGTH_LONG).show();
@@ -435,7 +514,6 @@ public class SaleFragment extends Fragment {
         if (bluetoothConnection != null) {
             new Thread(() -> {
                 try {
-                    // Simulación de canal de salida físico ESC/POS
                     String payloadNormal = "BOLETO " + boleto.uuid;
                     String payloadFinal = ticketPrintProcessor.formatearPayloadSeguro(payloadNormal, false);
 
@@ -443,11 +521,10 @@ public class SaleFragment extends Fragment {
                             precioCentavos / 100.0, metodoPago, boleto.hash, bluetoothConnection);
 
                 } catch (Exception e) {
-                    // 🔌 Interceptación de errores físicos en caliente de la ticketera
                     if (e.getMessage() != null && e.getMessage().contains("paper")) {
-                        huboFallaMecanicaPapel = true; // [CP87] Atasco detectado
+                        huboFallaMecanicaPapel = true;
                     } else {
-                        huboFallaDesconexion = true;   // [CP88] Caída de radiofrecuencia
+                        huboFallaDesconexion = true;
                     }
                     requireActivity().runOnUiThread(() ->
                             Toast.makeText(getContext(), "⚠️ Interrupción de hardware. Verifique el rodillo.", Toast.LENGTH_LONG).show()
@@ -456,7 +533,7 @@ public class SaleFragment extends Fragment {
             }).start();
             Toast.makeText(getContext(), "Boleto emitido e impreso.", Toast.LENGTH_SHORT).show();
         } else {
-            this.huboFallaDesconexion = true; // Impresora apagada de antemano
+            this.huboFallaDesconexion = true;
             Toast.makeText(getContext(), "Impresora fuera de línea. Habilitando modo re-vinculación.", Toast.LENGTH_LONG).show();
         }
     }
@@ -482,6 +559,7 @@ public class SaleFragment extends Fragment {
         String mac = prefs.getString("printer_mac", "");
         if (mac.isEmpty()) {
             tvEstadoImpresora.setText("Ticketera: No configurada.");
+            if (batteryManager != null) batteryManager.setEnlaceBluetoothActivo(false);
             return;
         }
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
@@ -491,22 +569,34 @@ public class SaleFragment extends Fragment {
                 bluetoothConnection = new BluetoothConnection(device);
                 tvEstadoImpresora.setText("Ticketera: Conectada Permanente ✓");
                 tvEstadoImpresora.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_green_dark));
+
+                // Habilitamos el canal lógico en el mánager e iniciamos el bucle periódico
+                if (batteryManager != null) {
+                    batteryManager.setEnlaceBluetoothActivo(true);
+                    batteryManager.iniciarMonitoreo();
+                }
             } catch (Exception e) {
                 bluetoothConnection = null;
                 tvEstadoImpresora.setText("Ticketera: Error de enlace.");
+                if (batteryManager != null) {
+                    batteryManager.setEnlaceBluetoothActivo(false);
+                    batteryManager.iniciarMonitoreo();
+                }
+            }
+        } else {
+            if (batteryManager != null) {
+                batteryManager.setEnlaceBluetoothActivo(false);
+                batteryManager.iniciarMonitoreo();
             }
         }
     }
-    /**
-     * Ejecuta la reimpresión contable controlada cruzando las flags analíticas de la ticketera.
-     */
+
     private void ejecutarReimpresionDeContingencia(boolean esBotonReconectarPresionado) {
         if (ultimoBoletoRegistrado == null) {
             Toast.makeText(getContext(), "No existe boleto previo en memoria para reimprimir.", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // Si presionó el botón específico de re-vincular, forzamos la reconexión de radio del periférico
         if (esBotonReconectarPresionado && huboFallaDesconexion) {
             verificarPermisosYConectar();
         }
@@ -523,26 +613,32 @@ public class SaleFragment extends Fragment {
             return;
         }
 
-        // Habilitación controlada y bimodal según la falla de hardware capturada
         boolean requiereGlosaAuditoria = TicketPrintProcessor.STATUS_CAN_REPRINT_JAM.equals(dictamenImpresion);
 
         if (bluetoothConnection != null) {
             new Thread(() -> {
                 String payloadBase = "BOLETO " + ultimoBoletoRegistrado.uuid;
-                // Inyección analítica inmutable de la glosa anti-clonación
                 String payloadAuditoria = ticketPrintProcessor.formatearPayloadSeguro(payloadBase, requiereGlosaAuditoria);
 
                 PrinterHelper.imprimirBoleto(requireContext(), "BUS-PLACA", ultimoBoletoRegistrado.tipoPasajero,
                         ultimoBoletoRegistrado.precioCentavos / 100.0, ultimoBoletoRegistrado.metodoPago,
                         ultimoBoletoRegistrado.hash, bluetoothConnection);
 
-                // Reiniciamos las flags tras el vaciado correcto del búfer físico
                 huboFallaMecanicaPapel = false;
                 huboFallaDesconexion = false;
             }).start();
             Toast.makeText(getContext(), "Reimpresión completada con éxito.", Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(getContext(), "Fallo crítico: El periférico térmico sigue sin responder.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // ADICIÓN: Liberar recursos al salir de la pantalla para evitar fugas de memoria
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        if (batteryManager != null) {
+            batteryManager.detenerMonitoreo();
         }
     }
 }

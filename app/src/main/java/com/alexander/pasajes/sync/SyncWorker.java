@@ -43,10 +43,8 @@ public class SyncWorker extends Worker {
         for (Boleto b : noSync) {
             BoletoSync dto = new BoletoSync();
 
-            // 🚀 IMPLEMENTACIÓN DE TU IDEA: Usamos el UUID v4 único y aleatorio generado en la venta
             dto.id_boleto = b.uuid;
 
-            // Mapeo dinámico del Turno serializado de la nube
             Turno turnoLocal = repo.getTurnoPorId(b.turnoId);
             if (turnoLocal != null && turnoLocal.serverTurnoId > 0) {
                 dto.id_turno = turnoLocal.serverTurnoId;
@@ -55,7 +53,6 @@ public class SyncWorker extends Worker {
                 dto.id_turno = b.turnoId;
             }
 
-            // 🚀 IMPLEMENTACIÓN DE TU IDEA: Enviamos el ID real de la tarifa capturada dinámicamente
             dto.id_tarifario = b.tarifarioId;
 
             dto.monto_pagado_centavos = b.precioCentavos;

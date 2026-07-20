@@ -10,5 +10,4 @@ public class BusDTO {
     public String numeroPadron;
     @SerializedName("capacidad_pasajeros")
     public int capacidadPasajeros;
-    // Añade más campos si los necesitas
 }

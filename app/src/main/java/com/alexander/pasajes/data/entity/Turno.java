@@ -16,7 +16,5 @@ public class Turno {
     public boolean activo;
     @ColumnInfo(name = "sincronizado")
     public boolean sincronizado;
-
-    // 🚀 ADICIÓN CRÍTICA: Guarda el id_turno real devuelto por PostgreSQL
     public int serverTurnoId;
 }

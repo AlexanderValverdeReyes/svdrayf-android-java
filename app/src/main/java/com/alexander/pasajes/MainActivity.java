@@ -46,7 +46,6 @@ public class MainActivity extends AppCompatActivity implements
         if (idRol == 5) { // Cobrador
             AppRepository repo = new AppRepository(this);
 
-            // 🚀 CORREGIDO: Busca el turno activo correspondiente estrictamente a este usuario
             Turno turnoActivo = repo.getTurnoActivoPorVendedor(idUsuario);
 
             if (turnoActivo != null && turnoActivo.activo) {

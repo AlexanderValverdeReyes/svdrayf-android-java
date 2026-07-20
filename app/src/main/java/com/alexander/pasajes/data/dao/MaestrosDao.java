@@ -32,7 +32,8 @@ public interface MaestrosDao {
 
     @Query("SELECT * FROM buses")
     List<Bus> getAllBuses();
-
+    @Query("SELECT * FROM buses WHERE estado = 1 ORDER BY numero_padron ASC")
+    List<Bus> getAllActiveBuses();
     @Query("SELECT * FROM rutas")
     List<Ruta> getAllRutas();
 

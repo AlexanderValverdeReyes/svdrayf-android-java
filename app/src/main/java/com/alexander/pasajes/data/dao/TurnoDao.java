@@ -20,7 +20,6 @@ public interface TurnoDao {
     @Query("SELECT * FROM turnos WHERE vendedorId = :vendedorId AND activo = 1 LIMIT 1")
     Turno getTurnoActivoPorVendedor(int vendedorId);
 
-    // 🚀 SOLUCIÓN AL ERROR: Declaramos la consulta exacta que requiere Room para compilar
     @Query("SELECT * FROM turnos WHERE id = :turnoId LIMIT 1")
     Turno getTurnoPorId(int turnoId);
 }

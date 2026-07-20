@@ -13,5 +13,5 @@ public class Paradero {
     @ColumnInfo(name = "nombre_paradero")
     public String nombre;
 
-    public boolean estado; // no lo usaremos directamente, pero existe en la tabla
+    public boolean estado;
 }

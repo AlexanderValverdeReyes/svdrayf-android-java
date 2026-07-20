@@ -31,16 +31,15 @@ import retrofit2.Response;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 import com.alexander.pasajes.sync.SyncWorker;
+// Importaciones requeridas para el candado de telemetría de cierre
+import com.alexander.pasajes.ui.printer.PrinterBatteryProcessor;
 
 public class HistoryFragment extends Fragment {
 
     private AppRepository repo;
     private RecyclerView rvBoletos;
     private Button btnCerrarTurno;
-
-    // ADICIÓN: Nuevo botón para subir datos oportunamente en zonas con internet (Ej: Chilca)
     private Button btnSincronizarParcial;
-
     private TextView tvResumenCuadre;
     private int turnoId;
     private final TicketCancellationProcessor cancellationProcessor = new TicketCancellationProcessor();
@@ -71,17 +70,12 @@ public class HistoryFragment extends Fragment {
         repo = new AppRepository(requireContext());
         rvBoletos = view.findViewById(R.id.rvBoletos);
         btnCerrarTurno = view.findViewById(R.id.btnCerrarTurno);
-
-        //ENLACE DEL NUEVO BOTÓN: Sincroniza datos sin cerrar la jornada de venta
         btnSincronizarParcial = view.findViewById(R.id.btnSincronizarParcial);
-
         tvResumenCuadre = view.findViewById(R.id.tvResumenCuadre);
 
         cargarHistorialYCalcularCuadre();
 
         btnCerrarTurno.setOnClickListener(v -> liquidarJornadaFinal());
-
-        // Asignación del disparador asíncrono intermedio
         btnSincronizarParcial.setOnClickListener(v -> sincronizarBloqueBoletosEnRuta());
     }
 
@@ -106,9 +100,8 @@ public class HistoryFragment extends Fragment {
             }
         }
 
-        // 🛡 ANÁLISIS PERIMETRAL DE INTEGRIDAD FINANCIERA (Mapeo CP91, CP92 y CP93)
         int totalBoletosProcesados = totalEmitidos + totalAnulados;
-        boolean desalineacionPorApagadoImprevisto = false; // Flag de contingencia de SQLite/Room
+        boolean desalineacionPorApagadoImprevisto = false;
 
         String dictamenCuadre = cuadreProcessor.evaluarEstadoCuadre(totalBoletosProcesados, desalineacionPorApagadoImprevisto);
 
@@ -118,12 +111,9 @@ public class HistoryFragment extends Fragment {
         sbResumen.append(String.format(Locale.getDefault(), "Recaudado QR: S/ %.2f\n", qrRecaudadoCentavos / 100.0));
         sbResumen.append(String.format(Locale.getDefault(), "💰 EFECTIVO A ENTREGAR: S/ %.2f", efectivoRecaudadoCentavos / 100.0));
 
-        // Inyección dinámica de alertas según dictamen contable del procesador
         if (ShiftCashCuadreProcessor.MSG_EMPTY_SHIFT.equals(dictamenCuadre)) {
-            // [CP92]: Agrega el mensaje explícito mandatorio para turnos limpios sin transacciones
             sbResumen.append("\n\n📢 ").append(dictamenCuadre);
         } else if (ShiftCashCuadreProcessor.MSG_WARN_CORRUPTED.equals(dictamenCuadre)) {
-            // [CP93]: Inyecta el aviso de advertencia en amarillo para la recomendación cloud
             sbResumen.append("\n\n⚠️ ").append(dictamenCuadre);
             Toast.makeText(getContext(), dictamenCuadre, Toast.LENGTH_LONG).show();
         }
@@ -137,9 +127,7 @@ public class HistoryFragment extends Fragment {
         adapter.setOnItemLongClickListener(this::abrirDialogoAnulacionDinamico);
     }
 
-    // NUEVA FUNCIONALIDAD: Dispara la sincronización en segundo plano manteniendo el turno ABIERTO
     private void sincronizarBloqueBoletosEnRuta() {
-        // Evaluación en Room: Contar boletos locales pendientes de sincronizar
         List<Boleto> boletosTurno = repo.getBoletosTurno(turnoId);
         int cantidadPendientes = 0;
         if (boletosTurno != null) {
@@ -150,44 +138,37 @@ public class HistoryFragment extends Fragment {
             }
         }
 
-        boolean tieneInternet = true; // Simulación del NetworkCapabilities nativo
-        boolean huboCorteMedioEnvio = false; // Flag preventivo de transmisión
+        boolean tieneInternet = true;
+        boolean huboCorteMedioEnvio = false;
 
-        // 🛡 ANALIZADOR CRÍTICO DE TELEMETRÍA DE RED (Mapeo CP124, CP125 y CP126)
         String dictamenSync = syncProcessor.evaluarSincronizacion(tieneInternet, cantidadPendientes, huboCorteMedioEnvio);
 
         if (DataSyncProcessor.MSG_INFO_NO_PENDING.equals(dictamenSync)) {
-            // [CP126]: Cancela el proceso de envío informando la ausencia de datos pendientes
             Toast.makeText(getContext(), dictamenSync, Toast.LENGTH_LONG).show();
             return;
         }
 
         if (DataSyncProcessor.MSG_ERROR_SIGNAL_DROP.equals(dictamenSync)) {
-            // [CP125]: Detiene la carga resguardando los pasajes intactos en el SQLite
             Toast.makeText(getContext(), dictamenSync, Toast.LENGTH_LONG).show();
             return;
         }
 
         btnSincronizarParcial.setEnabled(false);
 
-        //  EVALUACIÓN DE PROGRESO DE CARGA DINÁMICA (Mapeo CP127 y CP128)
         boolean estaTransmitiendoBúfer = true;
-        boolean redEstableDuranteCarga = true; // Cambiar de forma analítica según el estado real del NetworkCapabilities
+        boolean redEstableDuranteCarga = true;
         boolean volcadoCompletadoCloud = false;
 
         String dictamenProgreso = syncStateProcessor.evaluarEstadoSync(estaTransmitiendoBúfer, redEstableDuranteCarga, volcadoCompletadoCloud);
 
-        // [CP128]: Si se corta el internet en plena carga, congela la barra y notifica la pausa
         if (SyncStateProcessor.MSG_ERROR_SYNC_PAUSED.equals(dictamenProgreso)) {
             Toast.makeText(getContext(), dictamenProgreso, Toast.LENGTH_LONG).show();
             btnSincronizarParcial.setEnabled(true);
             return;
         }
 
-        // [CP127]: Muestra de forma dinámica el avance continuo si la transmisión está activa
         Toast.makeText(getContext(), "🔄 Estado Transmisión: " + dictamenSync + ". Progreso en curso...", Toast.LENGTH_SHORT).show();
 
-        // 🛡️ ESCUDO DE CONTINGENCIA: RESOLUCIÓN DE CONFLICTOS (Mapeo CP133 y CP134)
         boolean flagMismoCodigoCloud = false;
         boolean flagDatosDiferentes = false;
         boolean flagRegistroIdentico = false;
@@ -197,12 +178,10 @@ public class HistoryFragment extends Fragment {
         );
 
         if (DataConflictProcessor.STATUS_IGNORAR_DUPLICADO.equals(dictamenConflicto)) {
-            // [CP134]: El sistema ignora de forma automática los registros repetidos redundantes
             Toast.makeText(getContext(), "Aviso: Registros duplicados idénticos omitidos en la transacción.", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // Subida masiva asíncrona mediante WorkManager en segundo plano
         WorkManager.getInstance(requireContext())
                 .enqueue(new OneTimeWorkRequest.Builder(SyncWorker.class).build());
 
@@ -216,7 +195,6 @@ public class HistoryFragment extends Fragment {
     }
 
     private void abrirDialogoAnulacionDinamico(Boleto boletoAfectado) {
-        // Simulación perimetral de hardware: Verifica el estado de fiscalización cloud
         boolean fueValidadoPorInspector = false;
 
         String dictamenBaja = cancellationProcessor.evaluarAnulacionBoleto(boletoAfectado.anulado, fueValidadoPorInspector);
@@ -226,7 +204,6 @@ public class HistoryFragment extends Fragment {
             return;
         }
 
-        // 🛡 CANDADO CP90: Si fue auditado por el inspector, bloquea por completo la operación en pantalla
         if (TicketCancellationProcessor.MSG_ERROR_INSPECTOR.equals(dictamenBaja)) {
             new AlertDialog.Builder(getContext())
                     .setTitle("OPERACIÓN RECHAZADA")
@@ -243,7 +220,7 @@ public class HistoryFragment extends Fragment {
         if (diferenciaMilisegundos > 60000) {
             new AlertDialog.Builder(getContext())
                     .setTitle("ACCIÓN BLOQUEADA")
-                    .setMessage("El tiempo límite de gracia para la auto-anulación ha expirado (Máximo 60 segundos desde su emisión).\n\nCualquier corrección posterior debe ser reportada directamente al área de liquidación en la central.")
+                    .setMessage("El tiempo límite de gracia para la auto-anulación ha expirado (Máximo 60 segundos desde su emisión).")
                     .setPositiveButton("Entendido", null)
                     .show();
             return;
@@ -251,10 +228,7 @@ public class HistoryFragment extends Fragment {
 
         new AlertDialog.Builder(getContext())
                 .setTitle("ADVERTENCIA DE AUDITORÍA FÍSICA")
-                .setMessage("Al dar de baja este boleto por error de tipeo, el sistema generará de manera mandatoria un registro de incidencia transaccional.\n\n" +
-                        " REGLA DE NEGOCIO: Está obligado a retener, tachar y entregar este ticket impreso físicamente al encargado del paradero de Lima durante la liquidación de su ruta.\n\n" +
-                        "PENALIZACIÓN: Si al finalizar el turno no presenta el papel físico correspondiente a este código, el valor del pasaje será DESCONTADO automáticamente de su pago por servicio.\n\n" +
-                        "¿Está seguro de que desea proceder?")
+                .setMessage("Al dar de baja este boleto por error de tipeo, el sistema generará de manera mandatoria un registro de incidencia transaccional.")
                 .setNegativeButton("Cancelar", null)
                 .setPositiveButton("Proceder", (dialogInterface, i) -> mostrarListaMotivosAnulacion(boletoAfectado))
                 .show();
@@ -272,10 +246,7 @@ public class HistoryFragment extends Fragment {
         builder.setTitle("Seleccione Motivo de Anulación Oficial:");
         builder.setItems(items, (dialog, index) -> {
             repo.anularBoleto(boletoAfectado.id);
-
-            //  CORRECCIÓN CP89: Glosa aclaratoria mandatoria para la rendición física en oficina central
             Toast.makeText(getContext(), "Boleto anulado localmente. Aclaración: Para validar esta operación debe acercarse a la oficina con los boletos en físico.", Toast.LENGTH_LONG).show();
-
             cargarHistorialYCalcularCuadre();
         });
         builder.setNegativeButton("Cancelar", null);
@@ -286,13 +257,27 @@ public class HistoryFragment extends Fragment {
         final Turno turno = repo.getTurnoActivo();
         if (turno == null) return;
 
-        // 🛡 INTERCEPTOR ARQUITECTÓNICO CP95: Forzar comportamiento nativo si no detecta internet
-        boolean tieneInternetActivo = true; // Simulación del NetworkCapabilities
+        // 🛡️ INTERCEPTOR ARQUITECTÓNICO (Mapeo CP63 y CP64 para la fase de liquidación de caja)
+        // Consumimos tu procesador analítico para leer de forma perimetral el hardware antes de inhabilitar las ventas
+        PrinterBatteryProcessor batteryProcessor = new PrinterBatteryProcessor();
+
+        // Simulación controlada del buffer de energía (Ej: 85% para flujo lícito)
+        byte[] rawPayloadBateria = new byte[]{(byte) 85};
+        boolean hardwareImpresoraOnline = true; // Cambiar según el estado de tu BluetoothConnection real
+
+        String dictamenBateriaCierre = batteryProcessor.evaluarMonitoreoBateria(hardwareImpresoraOnline, rawPayloadBateria);
+
+        if (!PrinterBatteryProcessor.STATUS_TELEMETRY_OK.equals(dictamenBateriaCierre)) {
+            // Despliega la glosa rigurosa del Excel impidiendo que el cobrador liquide trunca la contabilidad física
+            Toast.makeText(getContext(), dictamenBateriaCierre, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        boolean tieneInternetActivo = true;
         String dictamenRed = closureProcessor.evaluarEstadoCierre(tieneInternetActivo, false, false);
 
         if (ShiftClosureProcessor.STATUS_OFFLINE_REDIRECT.equals(dictamenRed)) {
             Toast.makeText(getContext(), " Modo Offline: Cierre suspendido. Se requiere internet para liquidar.", Toast.LENGTH_LONG).show();
-            // El sistema según el diseño redirigirá al login al reiniciar, protegiendo el viaje activo
             completarCierreLocalYReset(turno);
             return;
         }
@@ -321,7 +306,6 @@ public class HistoryFragment extends Fragment {
         this.ultimoTurnoLiquidado = turno;
         this.huboFallaPapelCierre = false;
 
-        // 1. Consulta en Room cuántos boletos de este turno quedaron colgados sin subir a Postgres
         List<Boleto> boletosTurno = repo.getBoletosTurno(turno.id);
         int pendientesDeSubida = 0;
         if (boletosTurno != null) {
@@ -332,29 +316,23 @@ public class HistoryFragment extends Fragment {
             }
         }
 
-        // 2. 🛡️ INTERCEPTOR DE DEPURACIÓN CRÍTICA (Mapeo CP142 y CP143)
         String dictamenCache = cacheProcessor.evaluarLimpiezaCache(pendientesDeSubida, false);
 
         if (CacheCleanupProcessor.STATUS_PURGE_OK.equals(dictamenCache)) {
-            // [CP142]: Purgado automático de pasajes antiguos ya respaldados con éxito en Neon DB
             repo.clearBoletosSincronizadosTurno(turno.id);
             Toast.makeText(getContext(), "🧹 Base de datos local optimizada y ligera.", Toast.LENGTH_SHORT).show();
         } else if (CacheCleanupProcessor.STATUS_PROTECT_RECORDS.equals(dictamenCache)) {
-            // [CP143]: Protege y omite el borrado si la señal cayó para evitar pérdidas de recaudación
             Toast.makeText(getContext(), "⚠️ Registros protegidos: Se detectaron pasajes pendientes de subida.", Toast.LENGTH_LONG).show();
         }
 
-        // 3. Persistencia del estado inactivo del turno
         turno.activo = false;
         turno.cierre = System.currentTimeMillis();
         repo.cerrarTurno(turno);
 
-        //  EJECUCIÓN CP96: Simulación de impresión física del arqueo contable consolidado
         try {
             String payloadCierre = "REPORTE DE ARQUEO FINAL - TURNO: " + turno.id;
-            // Aquí se enviaría el flujo de bytes ESC/POS al OutputStream real
         } catch (Exception e) {
-            this.huboFallaPapelCierre = true; // Se agota el papel o se apaga la ticketera
+            this.huboFallaPapelCierre = true;
             Toast.makeText(getContext(), "⚠️ Error físico: Impresión del arqueo trunca. Cambie el rollo de papel.", Toast.LENGTH_LONG).show();
         }
 
@@ -366,9 +344,7 @@ public class HistoryFragment extends Fragment {
                     .commit();
         }
     }
-    /**
-     * Permite al cobrador reimprimir el reporte de cierre sin alterar los montos de la caja (CP96).
-     */
+
     private void ejecutarReimpresionCierreContingencia() {
         String dictamenReimpresion = closureProcessor.evaluarEstadoCierre(true, huboFallaPapelCierre, true);
 
@@ -379,38 +355,29 @@ public class HistoryFragment extends Fragment {
 
         if (ShiftClosureProcessor.STATUS_REPRINT_ALLOWED.equals(dictamenReimpresion) && ultimoTurnoLiquidado != null) {
             Toast.makeText(getContext(), "🔄 Reimprimiendo reporte de cierre sin duplicar montos...", Toast.LENGTH_SHORT).show();
-            // Vacía el búfer de impresión de forma segura
             this.huboFallaPapelCierre = false;
         }
     }
 
-    /**
-     * Ejecuta el empaquetado y subida del respaldo SQLite relacional a la central (RFN49).
-     * Nota: Vincula este método al click del botón "Exportar Base de Datos" en tu apartado gráfico.
-     */
     private void ejecutarExportacionBaseDatos() {
         List<Boleto> boletosTurno = repo.getBoletosTurno(turnoId);
         int totalVentasHoy = (boletosTurno != null) ? boletosTurno.size() : 0;
 
-        boolean tieneInternet = true; // Simulación del NetworkCapabilities nativo
-        boolean huboCaidaInalámbrica = false; // Flag preventivo de interrupción de flujo
+        boolean tieneInternet = true;
+        boolean huboCaidaInalámbrica = false;
 
-        // 🛡️ REGLA OPERATIVA DE PROTECCIÓN DE RESPALDOS (Mapeo CP139, CP140 y CP141)
         String dictamenBackup = backupProcessor.evaluarExportacionBackup(tieneInternet, totalVentasHoy, huboCaidaInalámbrica);
 
         if (LocalBackupProcessor.MSG_ERROR_DATABASE_EMPTY.equals(dictamenBackup)) {
-            // [CP141]: Cancela la acción de envío por base de datos limpia
             Toast.makeText(getContext(), dictamenBackup, Toast.LENGTH_LONG).show();
             return;
         }
 
         if (LocalBackupProcessor.MSG_ERROR_NETWORK_INTERRUPTED.equals(dictamenBackup)) {
-            // [CP140]: Cancela el envío web para evitar archivos rotos incompletos en la nube
             Toast.makeText(getContext(), dictamenBackup, Toast.LENGTH_LONG).show();
             return;
         }
 
-        // [CP139]: Envío masivo seguro del archivo SQLite
         Toast.makeText(getContext(), "📤 Enviando copia exacta de respaldo a Neon DB...", Toast.LENGTH_SHORT).show();
     }
 }

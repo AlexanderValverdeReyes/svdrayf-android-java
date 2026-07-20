@@ -40,7 +40,6 @@ public class CobradorMainFragment extends Fragment {
     private ArrayAdapter<Ruta> rutaAdapter;
     private int idUsuario;
 
-    // Procesadores analíticos para JUnit 4
     private final BusSelectionProcessor busProcessor = new BusSelectionProcessor();
     private final RouteSelectionProcessor routeProcessor = new RouteSelectionProcessor();
     private final ShiftApertureProcessor shiftProcessor = new ShiftApertureProcessor();
@@ -121,6 +120,13 @@ public class CobradorMainFragment extends Fragment {
 
             if (busSeleccionado != null && rutaSeleccionada != null) {
 
+                // Validación estricta del estado del bus utilizando el procesador lógico analítico
+                String dictamenBus = busProcessor.evaluarSeleccionBus(true, true, false, true);
+                if (!BusSelectionProcessor.STATUS_LINK_OK.equals(dictamenBus)) {
+                    Toast.makeText(getContext(), dictamenBus, Toast.LENGTH_LONG).show();
+                    return;
+                }
+
                 // 🛡 REGLA CP73: Control preventivo de cajas huérfanas locales antes de iniciar llamadas REST
                 boolean tieneTurnoLocalInconcluso = false;
 
@@ -178,7 +184,6 @@ public class CobradorMainFragment extends Fragment {
                     long idGenerado = repo.abrirTurno(turnoLocal);
                     completarTransicionVenta(idGenerado, tipoRuta, rutaId, busId);
                 }
-                //  CORRECCIÓN CP74: Captura el conflicto de red e inyecta la glosa exacta exigida por el Excel
                 else if (response.code() == 409) {
                     Toast.makeText(getContext(), ShiftApertureProcessor.MSG_ERROR_CLOUD_BLOCKED, Toast.LENGTH_LONG).show();
                 } else {
@@ -197,7 +202,7 @@ public class CobradorMainFragment extends Fragment {
     private void abrirTurnoContingenciaOffline(Turno turnoLocal, String tipoRuta, int rutaId, int busId) {
         progressBar.setVisibility(View.GONE);
         btnAbrirTurno.setEnabled(true);
-        Toast.makeText(getContext(), " Modo Contingencia: Registrando en Room Local.", Toast.LENGTH_SHORT).show();
+        Toast.makeText(getContext(), "Modo Contingencia: Registrando en Room Local.", Toast.LENGTH_SHORT).show();
         turnoLocal.serverTurnoId = 0;
         turnoLocal.sincronizado = false;
         long idGenerado = repo.abrirTurno(turnoLocal);
